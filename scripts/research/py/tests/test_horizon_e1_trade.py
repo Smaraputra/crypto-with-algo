@@ -218,6 +218,7 @@ def test_golden_case_a():
 
     assert res.stopped is False
     assert res.truncated is False
+    assert res.btc_carried is False
     assert res.funding_gap is False
     assert res.n_settlements == 1
 
@@ -711,7 +712,7 @@ def test_simulate_ineligible_pair_assertion():
         simulate(p_missing, store, horizon_hours=4)
 
 
-def test_btc_exit_fallback_missing():
+def test_btc_exit_missing_carries_the_last_close():
     pair, store, stamp_ms, entry_ms, te_ms = build_case_a_setup()
     # BTC has entry bar at 08:02, but no bars within 30 minutes of exit at 12:02
     # Keep only entry bar
@@ -726,9 +727,14 @@ def test_btc_exit_fallback_missing():
         volume=np.array([bb.volume[idx_entry]], dtype=np.float64),
     )
 
+    # No BTC bar at the exit: the close of the last BTC bar at or before it (the entry bar, close 50200) is carried,
+    # the pair stays in and is flagged (rule 2: nothing after the entry excludes a pair).
     res = simulate(pair, store, horizon_hours=4, delay_minutes=1)
-    assert res.status == "excluded"
-    assert res.reason == "btc_missing"
-    assert res.exit_ms == 0
-    assert math.isnan(res.px)
-    assert math.isnan(res.net)
+    assert res.status == "ok"
+    assert res.reason is None
+    assert res.btc_carried is True
+    assert res.bx == pytest.approx(50200.0, abs=1e-12)
+    assert res.gross_btc == pytest.approx((50200.0 - 50000.0) / 50000.0, abs=1e-12)
+    assert res.exit_ms == te_ms
+    assert res.px == pytest.approx(94.0, abs=1e-12)
+    assert not math.isnan(res.net)

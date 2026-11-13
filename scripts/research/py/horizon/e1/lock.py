@@ -36,18 +36,20 @@ so it is not evidence here.
 CODE IS PART OF THE LOCK. lock_digest() is the sha256 of the bytes of every horizon/e1/*.py file (sorted by name, this
 file included, scan_events.py included). Every result file records that digest and the git HEAD commit. Any change to a
 horizon/e1/*.py file after the first real run changes the digest and needs a new ledger id with its trials added to the
-ledger. The commands that read prices refuse to run when the git working tree has uncommitted changes under
-scripts/research/py/horizon/e1, unless the environment attests a clean tree (HORIZON_GIT_HEAD and HORIZON_TREE_CLEAN=1,
-for the research image that has no .git), and the result then says "attested by environment". Every result also records
-the numpy, pandas and scipy versions. The research image runs with --network none.
+ledger. The command run, which computes the trials, refuses to run when the git working tree has uncommitted changes
+under scripts/research/py/horizon/e1, unless the environment attests a clean tree (HORIZON_GIT_HEAD and
+HORIZON_TREE_CLEAN=1, for the research image that has no .git), and the result then says "attested by environment".
+Every result also records the numpy, pandas and scipy versions. The research image runs with --network none.
 
 REGISTRATION ANCHOR. scripts/research/py/records/horizon_e1_registration.json (outside horizon/e1/, written by the lead
 at registration) holds the lock digest, the sha256 of the frozen event record, the sha256 of the fetch plan, the sha256
 of the manifest of the downloaded files, and the owner's signature (the date and the lock digest the owner signed in
-chat). The command register-check prints what the file should contain. The commands that read prices refuse to run when
-the file is absent or anything differs. The frozen record's sha256 is also the constant EVENTS_SHA256 of this module: a
-real run refuses any other record, and the SYNTHETIC marker of a data folder is refused for this one (the marker alone
-never disables a guard).
+chat). The command register-check prints what the file should contain. The command run refuses to run when the file is
+absent or anything differs. The commands fetch-plan, register-check and data-check compute no return: data-check opens
+the planned files for structure only, counts rows and lists problems, and needs no anchor. The frozen record's sha256 is
+also the constant EVENTS_SHA256 of this module: a real run refuses any other record, and the SYNTHETIC marker of a data
+folder is refused for this one (the marker alone never disables a guard: a synthetic run also needs meta.synthetic true
+in the record and synthetic true on every manifest line, which the real downloader never writes).
 
 1. EVENTS (frozen). The frozen event record is scripts/research/py/records/horizon_e1_events.json, written once by
    horizon/e1/scan_events.py on 2026-11-13 UTC (scan time in its meta) from Binance's public announcement lists (general
@@ -93,22 +95,25 @@ never disables a guard).
    per pair. (s4) The 1,440 minutes with open_time in [M - 1,440 min, M), where M is the stamp's minute start, contain
    at least 360 bars with volume above zero (the perp traded, not only existed). (s5) The 1m bar at the entry minute
    exists with volume above zero (a print to fill against). A day that the record lists as present but is absent from
-   the manifest or failed to download stops the run, it is never an exclusion, and missing bars inside a present file
-   are handled by rule 3 only. Every excluded pair is listed with its reason. No pair that passed (s1) to (s5) is
-   excluded for anything observed after the entry.
+   the manifest, failed to download (manifest status missing) or was repaired by the downloader (duplicate or bad rows)
+   stops the run, it is never an exclusion, and missing bars inside a present file are handled by rule 3 only. Every
+   excluded pair is listed with its reason. No pair that passed (s1) to (s5) is excluded for anything observed after the
+   entry.
 
 3. CLOCK, ENTRY, EXITS. Let s be the stamp in milliseconds. The first full minute that starts after the stamp starts at
    m0 = floor(s / 60,000) x 60,000 + 60,000, so a stamp exactly on a minute boundary falls before m0 as the preprint's
    t0 does. The entry is at the OPEN of the 1m bar with open_time m0 + ENTRY_DELAY_MINUTES x 60,000 (1 minute, so about
    108 seconds after a stamp 12 seconds into a minute). The exit time is te = entry + h x 3,600,000 for h in
    HORIZONS_HOURS (4 and 24). The token's exit price Px is the OPEN of the bar at te if that bar has volume above zero,
-   else the CLOSE of the last bar with volume above zero at or before te. If that bar is more than STALE_EXIT_MINUTES =
-   30 before te (the contract stopped trading, for example a delisting settlement), the trade is flagged truncated and
-   stays in. The BTC exit price Bx is the open of the BTCUSDT bar at te. For a truncated trade the exit time is the
-   close of the token's last traded bar (its open_time plus 60 seconds), Bx is the open of the BTCUSDT bar at that time,
-   and funding and costs run to that time, so the hedge never outlives the token leg. The stop scan of rule 5 runs over
-   the bars from the entry bar up to, not including, the bar at te, and for a truncated trade up to, including, the
-   token's last traded bar.
+   else the CLOSE of the last bar with volume above zero at or before te. If that bar's open_time is more than
+   STALE_EXIT_MINUTES = 30 minutes before te (the contract stopped trading, for example a delisting settlement), the
+   trade is flagged truncated and stays in. The BTC exit price Bx is the open of the BTCUSDT bar at te, or, when that
+   bar is missing, the close of the last BTCUSDT bar at or before it (the trade is flagged btc_carried and stays in,
+   because nothing observed after the entry excludes a pair). For a truncated trade the exit time is the close of the
+   token's last traded bar (its open_time plus 60 seconds), Bx follows the same rule at that time, and funding and costs
+   run to that time, so the hedge never outlives the token leg. The stop scan of rule 5 runs over the bars from the
+   entry bar up to, not including, the bar at te, and for a truncated trade up to, including, the token's last traded
+   bar.
 
 4. THE POSITION. Per 1.0 of short notional: short the token's perpetual at the entry price Pe and go long BTCUSDT
    (perpetual) for 1.0 notional at its entry bar's open Be (the same entry minute). Gross result = (Pe - Px) / Pe + (Bx
@@ -166,7 +171,8 @@ never disables a guard).
    survives execution cost, funding and the stop, not that an edge exists, and it does not move the tier 2 prior beyond
    what forward events show. A trial that passes reaches gate G0 of the tier 2 plan only if (i) its delay profile (rule
    10) has a mean of at least +0.02 at LIVE_DELAY_MINUTES = 6 after m0 (the delay-d statistic is the full trial of rules
-   3 to 8 with ENTRY_DELAY_MINUTES replaced by d and te = entry + h, over the same pairs), the delay that a 5-minute
+   3 to 8 with ENTRY_DELAY_MINUTES replaced by d and te = entry + h, over the pairs the trial priced successfully, a
+   pair that fails a check at the later entry minute dropping out of that delay only), the delay that a 5-minute
    recorder plus one minute of work can sustain, or (ii) the owner accepts, at G0, a recorder whose measured 95th
    percentile of stamp-to-order latency is under 60 seconds.
 
@@ -174,13 +180,15 @@ never disables a guard).
     announcements, tokens, tokens with a symbol, eligible tokens and clusters, with exclusion reasons and the by-year
     reconciliation with the preprint's Table 1; the mean, median, standard deviation, share positive and t of cluster
     values (net, gross, unhedged net, doubled-slippage net); the result by calendar year; the entry delay profile at
-    DELAY_PROFILE_MINUTES = (1, 3, 6, 10, 30) after m0; the worst adverse excursion per token (maximum high from the
-    entry bar to the bar at te, which the stop does not shorten) with the number of tokens whose excursion reached +30%
-    (stopped) and +90% (a proxy for liquidation of a 1x isolated short); the realised funding sum; the number of
-    truncated trades; per pair, the first futures delisting notice in the record (symbols from titles and bodies) that
-    names the symbol between the stamp and te, if any; the share of class D tokens that were in class T earlier and
-    their results apart from the rest; the days between a class D token's first tag and its delisting notice, and
-    between its latest tag before that notice and the notice.
+    DELAY_PROFILE_MINUTES = (1, 3, 6, 10, 30) after m0; the worst adverse excursion per token (maximum high over the
+    bars from the entry bar up to, not including, the bar at te, which the stop does not shorten) with the number of
+    tokens whose excursion reached +30% (stopped) and +90% (a proxy for liquidation of a 1x isolated short); the
+    realised funding sum; the number of truncated, stopped and btc_carried trades, and of trades flagged funding_gap (a
+    descriptive flag: it also marks a truncated trade, which has no settlement after its exit, and a funding interval
+    that changes inside the hold); per pair, the first futures delisting notice in the record (symbols from titles and
+    bodies) that names the symbol between the stamp and te, if any; the share of class D tokens that were in class T
+    earlier and their results apart from the rest; the days between a class D token's first tag and its delisting
+    notice, and between its latest tag before that notice and the notice.
 
 11. THE CLAIM LINE (tier 1, not part of the 4 trials, after a pass of a class T trial only). A pass makes no claim that
     the announcement caused the fall. Two nulls are specified here and are implemented in a separate lock folder
@@ -198,7 +206,9 @@ never disables a guard).
 
 12. FORWARD RECORD. Events with a stamp at or after FREEZE_MS are never read by this lock. They are the confirmation
     sample. The announcement recorder (unit 1 of the implementation map) stamps them at receipt. A forward judgement is
-    made only under a later lock (lab-v5 or similar) signed by the owner.
+    made only under a later lock (lab-v5 or similar) signed by the owner. The fetch plan of this lock lists only days
+    inside each symbol's archive span, so a forward contract whose archive ends inside its window needs that later lock
+    to handle the days after its end.
 
 13. DATA AND GUARDS. Bars: Binance USDT-M perpetual daily 1m kline files (fetched by scripts/ops/fetch-event-files.ts
     into gzip CSV with the header
@@ -281,6 +291,8 @@ MIN_CLUSTERS = 10
 
 EVENTS_RECORD = "scripts/research/py/records/horizon_e1_events.json"
 EVENTS_SHA256 = "41009340d52315e833dbc7c0b89bdbd91bea9a8bf661b038a55ba8e91b141d89"  # sha256 of that file
+# Table 1 of the preprint, Panel A: year -> (announcements, first-time tags after its drops).
+PREPRINT_TABLE1 = {2023: (2, 23), 2024: (4, 30), 2025: (8, 41), 2026: (12, 61)}
 REGISTRATION_ANCHOR = "scripts/research/py/records/horizon_e1_registration.json"
 
 __all__ = [

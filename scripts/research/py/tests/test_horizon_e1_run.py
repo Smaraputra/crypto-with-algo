@@ -74,6 +74,7 @@ def _setup_world(root: Path) -> dict[str, Any]:
             "intro_body_text_sha256": "dummy",
             "intro_code": "dummy",
             "scan_utc": "2026-11-13T00:00:00Z",
+            "synthetic": True,
             "tag_notices": 1,
             "unclassified_titles": 0,
         },
@@ -208,7 +209,7 @@ def _setup_world(root: Path) -> dict[str, Any]:
     manifest_file = data_dir / "manifest.jsonl"
     with open(manifest_file, "w", encoding="utf-8") as f:
         for entry in manifest_entries:
-            f.write(json.dumps(entry) + "\n")
+            f.write(json.dumps({**entry, "synthetic": True}) + "\n")
 
     return {
         "data_dir": data_dir,
@@ -803,3 +804,50 @@ def test_data_check_counts_files_and_flags_a_tampered_one(tmp_path: Path, capsys
     assert len(report_bad["problems"]) == 1
     assert job["symbol"] in report_bad["problems"][0]
     assert "sha256" in report_bad["problems"][0]
+
+
+def test_synthetic_marker_needs_the_record_and_manifest_flags(tmp_path: Path) -> None:
+    """A byte-different copy of a real record, or real manifest lines, never pass as synthetic (exit code 2)."""
+    # (a) the record is not flagged synthetic (as in a re-dumped copy of the frozen record)
+    root_a = tmp_path / "a"
+    root_a.mkdir()
+    world_a = _setup_world(root_a)
+    rec = json.loads(world_a["events_path"].read_text(encoding="utf-8"))
+    rec["meta"].pop("synthetic")
+    world_a["events_path"].write_text(json.dumps(rec, indent=1), encoding="utf-8")
+    out_a = root_a / "out.json"
+    assert main(_run_args(world_a, root_a / "none.json", out_a)) == 2
+    assert not out_a.exists()
+
+    # (b) the manifest lines come from the real downloader, which never writes the synthetic flag
+    root_b = tmp_path / "b"
+    root_b.mkdir()
+    world_b = _setup_world(root_b)
+    lines = [json.loads(ln) for ln in world_b["manifest_file"].read_text(encoding="utf-8").splitlines() if ln.strip()]
+    for entry in lines:
+        entry.pop("synthetic")
+    world_b["manifest_file"].write_text("\n".join(json.dumps(e) for e in lines) + "\n", encoding="utf-8")
+    out_b = root_b / "out.json"
+    assert main(_run_args(world_b, root_b / "none.json", out_b)) == 2
+    assert not out_b.exists()
+
+
+def test_a_planned_file_that_is_missing_or_repaired_stops_the_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A listed day that failed to download is never an exclusion: run exits 2 and data-check exits 1."""
+    for case, change in (("missing", {"status": "missing"}), ("repaired", {"duplicates": 3})):
+        root = tmp_path / case
+        root.mkdir()
+        world = _setup_world(root)
+        lines = [json.loads(ln) for ln in world["manifest_file"].read_text(encoding="utf-8").splitlines() if ln.strip()]
+        lines[0].update(change)
+        world["manifest_file"].write_text("\n".join(json.dumps(e) for e in lines) + "\n", encoding="utf-8")
+        out = root / "out.json"
+        assert main(_run_args(world, root / "none.json", out)) == 2
+        assert not out.exists()
+        capsys.readouterr()
+        assert main(["data-check", "--plan", str(world["plan_path"]), "--data-dir", str(world["data_dir"])]) == 1
+        problems = json.loads(capsys.readouterr().out)["problems"]
+        assert problems
+        assert any(lines[0]["symbol"] in p for p in problems)

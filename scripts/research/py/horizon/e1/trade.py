@@ -21,7 +21,7 @@ class TradeResult:
     horizon_hours: int
     delay_minutes: int
     status: str  # "ok" or "excluded"
-    reason: str | None  # for "excluded": "activity", "entry_bar" or "btc_missing"
+    reason: str | None  # for "excluded": "activity", "entry_bar" or "btc_missing" (the BTC entry bar only)
     entry_ms: int
     te_ms: int  # entry_ms + horizon_hours * 3_600_000
     exit_ms: int  # when both legs close (rule 3 and rule 5), 0 when excluded
@@ -31,6 +31,7 @@ class TradeResult:
     bx: float
     stopped: bool
     truncated: bool
+    btc_carried: bool  # the BTC exit price is a carried close, not an open
     funding_gap: bool
     n_settlements: int
     gross_token: float  # (pe - px) / pe
@@ -72,6 +73,7 @@ def _make_excluded(
         bx=nan,
         stopped=False,
         truncated=False,
+        btc_carried=False,
         funding_gap=False,
         n_settlements=0,
         gross_token=nan,
@@ -267,18 +269,17 @@ def simulate(
         exit_bar_idx = cand_exit_idx
         btc_target_ms = cand_btc_target_ms
 
-    # BTC exit price lookup
+    # BTC exit price lookup (rule 3): the open of the BTCUSDT bar at the exit time. When that bar is missing, the
+    # close of the last BTCUSDT bar at or before it is carried (the entry bar exists, so there is one) and the trade
+    # is flagged. Nothing observed after the entry excludes a pair (rule 2).
+    btc_carried = False
     btc_exit_idx = btc_bars.index_of(btc_target_ms)
     if btc_exit_idx >= 0:
         bx = float(btc_bars.open[btc_exit_idx])
     else:
-        btc_fallback_mask = (btc_bars.open_time >= btc_target_ms - lock.STALE_EXIT_MINUTES * lock.MINUTE_MS) & (
-            btc_bars.open_time <= btc_target_ms
-        )
-        btc_fallback_indices = np.where(btc_fallback_mask)[0]
-        if len(btc_fallback_indices) == 0:
-            return _make_excluded(token, symbol, horizon_hours, delay_minutes, "btc_missing", entry_ms, te_ms)
-        bx = float(btc_bars.open[btc_fallback_indices[-1]])
+        prior_idx = int(np.searchsorted(btc_bars.open_time, btc_target_ms, side="right")) - 1
+        bx = float(btc_bars.close[prior_idx])
+        btc_carried = True
 
     # 6. Gross (rule 4)
     gross_token = (pe - px) / pe
@@ -339,6 +340,7 @@ def simulate(
         bx=bx,
         stopped=stopped,
         truncated=truncated,
+        btc_carried=btc_carried,
         funding_gap=funding_gap,
         n_settlements=n_settlements,
         gross_token=gross_token,

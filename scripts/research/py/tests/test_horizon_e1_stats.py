@@ -117,7 +117,7 @@ def test_bootstrap_bound() -> None:
 
 
 def test_judge_trial() -> None:
-    """Hand-built cases where each clause fails alone, all pass, or bound is NaN."""
+    """Hand-built cases: clauses (a), (b), (d), (e) each fail alone, (c) fails with (b), all pass, and a NaN bound."""
     rng = np.random.default_rng(lock.BOOT_SEED)
 
     # All pass: 12 clusters with values 0.05 to 0.07
@@ -140,27 +140,43 @@ def test_judge_trial() -> None:
     assert j_a.clause_e
     assert not j_a.passed
 
-    # Fails clause_b alone: bound below zero
-    vals_b = np.array([0.05, -0.08, 0.06, -0.07, 0.05, 0.06, -0.05, 0.07, 0.04, -0.06, 0.05, 0.08])
+    # Fails clause_b alone: mean 1/30 = 0.0333 and every leave-one-out mean at least 0.029 pass (a) and (c), 12 clusters
+    # pass (d), but the spread (10 values at +0.08, 2 at -0.20, sd 0.109) puts the t bound at about -0.049
+    vals_b = np.array([0.08] * 10 + [-0.20] * 2)
     j_b = judge_trial("T-4h", vals_b, 0.05, rng)
+    assert j_b.mean == pytest.approx(0.4 / 12, abs=1e-12)
+    assert j_b.loo_min == pytest.approx((0.8 - 0.08 - 0.4) / 11, abs=1e-12)
+    assert j_b.t_bound < 0
+    assert j_b.bound < 0
+    assert j_b.clause_a
     assert not j_b.clause_b
+    assert j_b.clause_c
+    assert j_b.clause_d
+    assert j_b.clause_e
     assert not j_b.passed
 
-    # Fails clause_c alone: dominated by one outlier
+    # Clause (c) cannot fail alone: with a mean of at least 0.02, a leave-one-out minimum below 0.01 needs one value
+    # far above the rest, and that spread also puts the t bound below zero. An outlier-dominated sample therefore
+    # fails (b) and (c) together (11 values at 0.005 and one at 0.30: mean 0.0296, leave-one-out minimum 0.005).
     vals_c = np.array([0.005] * 11 + [0.30])
     j_c = judge_trial("T-4h", vals_c, 0.05, rng)
+    assert j_c.clause_a
+    assert j_c.loo_min == pytest.approx(0.005, abs=1e-12)
     assert not j_c.clause_c
+    assert not j_c.clause_b
     assert not j_c.passed
 
-    # Fails clause_d alone: 9 values (< lock.MIN_CLUSTERS = 10)
+    # Fails clause_d alone: 9 values (< lock.MIN_CLUSTERS = 10), every other clause holds
     vals_d = np.full(9, 0.06)
     j_d = judge_trial("T-4h", vals_d, 0.05, rng)
+    assert j_d.clause_a and j_d.clause_b and j_d.clause_c and j_d.clause_e
     assert not j_d.clause_d
     assert not j_d.passed
 
     # Fails clause_e alone: excluded share 0.11 (> lock.MAX_EXCLUDED_SHARE = 0.10)
     vals_e = np.full(12, 0.06)
     j_e = judge_trial("T-4h", vals_e, 0.11, rng)
+    assert j_e.clause_a and j_e.clause_b and j_e.clause_c and j_e.clause_d
     assert not j_e.clause_e
     assert not j_e.passed
 

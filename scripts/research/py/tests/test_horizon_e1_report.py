@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 
 import numpy as np
+import pytest
 
-from horizon.e1 import lock
+from horizon.e1 import lock, trade
 from horizon.e1.data import Bars, Funding
-from horizon.e1.events import build_pairs
+from horizon.e1.events import Pair, build_pairs
 from horizon.e1.report import g0_live_delay_ok, run_trials, to_json_safe
 
 
@@ -264,8 +266,6 @@ def test_horizon_e1_report_synthetic() -> None:
     assert t4["counts"]["exclusions"]["activity"] == 1
     assert t4["counts"]["exclusions"]["entry_bar"] == 1
     assert t4["counts"]["exclusions"]["btc_missing"] == 0
-    assert t4["counts"]["activity"] == 1
-    assert t4["counts"]["entry_bar"] == 1
 
     # 3. Unit and cluster counts
     # Notice 1 has 2 ok tokens (TOK1, TOKD1) -> 1 unit. Notice 2 has 1 ok token (TOK4) -> 1 unit.
@@ -301,9 +301,8 @@ def test_horizon_e1_report_synthetic() -> None:
 
     # 7. delay_profile has five delays and delay 6 matches hand calculation
     assert len(t4["delay_profile"]) == 5
-    assert 6 in t4["delay_profile"]
     assert "6" in t4["delay_profile"]
-    assert math.isclose(t4["delay_profile"][6]["mean"], expected_net, abs_tol=1e-12)
+    assert math.isclose(t4["delay_profile"]["6"]["mean"], expected_net, abs_tol=1e-12)
     assert math.isclose(t4["delay_profile_live_mean"], expected_net, abs_tol=1e-12)
 
     # 8. g0_ready is False for a failing trial (clusters = 2 < lock.MIN_CLUSTERS = 10)
@@ -314,18 +313,18 @@ def test_horizon_e1_report_synthetic() -> None:
     # 9. futures_delist_before_exit for TOK1
     fd = t4["futures_delist_before_exit"]
     assert fd["count"] == 1
-    assert fd["list"][0]["token"] == "TOK1"
-    assert fd["list"][0]["code"] == "fd_1"
-    assert math.isclose(fd["list"][0]["hours_after_stamp"], 2.0, abs_tol=1e-12)
+    assert fd["items"][0]["token"] == "TOK1"
+    assert fd["items"][0]["code"] == "fd_1"
+    assert math.isclose(fd["items"][0]["hours_after_stamp"], 2.0, abs_tol=1e-12)
 
     # 10. tag_overlap for Class D
     tag_ov = d4["tag_overlap"]
     # TOKD1 was tagged in Notice 1, TOKD2 had data_missing (not in class T)
     # D tokens with symbol: TOKD1, TOKD2 (2). Previously tagged: TOKD1 (1).
-    assert math.isclose(tag_ov["share"], 0.5, abs_tol=1e-12)
+    assert math.isclose(tag_ov["share_previously_tagged"], 0.5, abs_tol=1e-12)
     assert len(tag_ov["first_tag_lags"]) == 1
     assert math.isclose(tag_ov["first_tag_lags"][0], 4.0, abs_tol=1e-12)
-    assert math.isclose(tag_ov["median_first_lag"], 4.0, abs_tol=1e-12)
+    assert math.isclose(tag_ov["median_first_tag_lag"], 4.0, abs_tol=1e-12)
 
     # 11. JSON serialization without error and no NaN or inf tokens
     json_str = json.dumps(res1)
@@ -338,6 +337,20 @@ def test_horizon_e1_report_synthetic() -> None:
     assert "pairs_rows" in loaded
     assert len(loaded["pairs_rows"]) > 0
 
+    # 12. Rule 2: pairs the record excludes are listed with their reason (TOK3 and TOK6 have no symbol)
+    t4_rows = [r for r in res1["pairs_rows"] if r["trial_id"] == "T-4h"]
+    record_excluded = {(r["token"], r["reason"]) for r in t4_rows if r["status"] == "record_excluded"}
+    assert record_excluded == {("TOK3", "no_symbol"), ("TOK6", "no_symbol")}
+    assert {r["token"] for r in t4_rows if r["status"] == "ok"} == {"TOK1", "TOKD1", "TOK4"}
+
+    # 13. Reconciliation with the preprint's Table 1: 2023 holds 2 announcements and 7 tokens of the synthetic record
+    rec_2023 = res1["reconciliation"]["2023"]
+    assert rec_2023["record_announcements"] == 2
+    assert rec_2023["record_first_time_tags"] == 7
+    assert (rec_2023["preprint_announcements"], rec_2023["preprint_first_time_tags"]) == (2, 23)
+    assert res1["reconciliation"]["2026"]["record_first_time_tags"] == 0
+    assert res1["reconciliation"]["2026"]["preprint_first_time_tags"] == 61
+
 
 def test_to_json_safe_keeps_bools_and_turns_nan_into_null() -> None:
     out = to_json_safe({"a": True, "b": np.bool_(False), "c": 3, "d": float("nan"), "e": np.int64(7), "f": [True, 1]})
@@ -346,3 +359,59 @@ def test_to_json_safe_keeps_bools_and_turns_nan_into_null() -> None:
     assert out["b"] is False
     assert out["f"][0] is True
     assert type(out["f"][1]) is int
+
+
+def _stub_pair(token: str = "STUB", code: str = "n1", stamp_ms: int = 1_700_000_000_000) -> Pair:
+    return Pair(
+        cls=lock.CLASS_T,
+        code=code,
+        stamp_ms=stamp_ms,
+        day="2023-11-14",
+        token=token,
+        symbol=f"{token}USDT",
+        reason="covers-stamp",
+        missing_days=(),
+        btc_missing_days=(),
+        pending_notice=None,
+    )
+
+
+def test_delay_profile_passes_the_delay_to_the_simulation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The profile entry for delay d must come from a simulation run at delay d (a stub makes net depend on d)."""
+    template = trade._make_excluded("STUB", "STUBUSDT", 4, 1, "activity", 0, 0)
+
+    def fake_simulate(pair, store, horizon_hours, delay_minutes=lock.ENTRY_DELAY_MINUTES):
+        return dataclasses.replace(
+            template,
+            status="ok",
+            reason=None,
+            horizon_hours=horizon_hours,
+            delay_minutes=delay_minutes,
+            entry_ms=pair.stamp_ms + delay_minutes * lock.MINUTE_MS,
+            net=0.05 - 0.001 * delay_minutes,
+            max_adverse=0.1,
+        )
+
+    monkeypatch.setattr(trade, "simulate", fake_simulate)
+    record = {"events": [], "futures_delist": []}
+    res = run_trials(record, [_stub_pair()], store=None)
+    t4 = res["trials"]["T-4h"]
+    for d in lock.DELAY_PROFILE_MINUTES:
+        assert t4["delay_profile"][str(d)]["delay_minutes"] == d
+        assert t4["delay_profile"][str(d)]["mean"] == pytest.approx(0.05 - 0.001 * d, abs=1e-12)
+        assert t4["delay_profile"][str(d)]["n_clusters"] == 1
+    assert t4["delay_profile_live_mean"] == pytest.approx(0.044, abs=1e-12)
+    assert t4["judgement"]["passed"] is False
+    assert t4["g0_ready"] is False
+
+
+def test_excluded_share_is_null_when_nothing_could_be_judged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A class with no pair has no denominator for clause (e): the share is null and the clause fails."""
+    template = trade._make_excluded("STUB", "STUBUSDT", 4, 1, "activity", 0, 0)
+    monkeypatch.setattr(trade, "simulate", lambda *a, **k: template)
+    res = run_trials({"events": [], "futures_delist": []}, [_stub_pair()], store=None)
+    d4 = res["trials"]["D-4h"]["judgement"]
+    assert d4["excluded_share"] is None
+    assert d4["clause_e"] is False
+    assert d4["n_clusters"] == 0
+    assert d4["passed"] is False

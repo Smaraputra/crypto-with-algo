@@ -234,7 +234,7 @@ def data_check(plan_path: Path | str, data_dir: Path | str, *, store_cls: type =
     plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
     store = store_cls(Path(data_dir))
     kline_ok = kline_missing = funding_ok = funding_missing = rows = 0
-    problems: list[str] = []
+    problems: list[str] = list(store.plan_problems(plan))
     for job in plan.get("klines", []):
         try:
             bars = store.klines(job["symbol"], job["day"])
@@ -268,6 +268,40 @@ def data_check(plan_path: Path | str, data_dir: Path | str, *, store_cls: type =
     return summary, (0 if not problems else 1)
 
 
+def _check_synthetic_allowed(events_path: Path | str, manifest_path: Path, events_hash: str) -> None:
+    """The SYNTHETIC marker alone never disables a guard (rule 13 of the Lighter lock, kept here).
+
+    It is refused for the frozen record, and it also needs the record to say meta.synthetic true and every line of the
+    manifest to carry synthetic true. The real downloader writes neither flag.
+    """
+    if events_hash == FROZEN_EVENTS_SHA256:
+        raise GuardError("the SYNTHETIC marker is refused for the frozen event record")
+    try:
+        meta = json.loads(Path(events_path).read_text(encoding="utf-8")).get("meta", {})
+    except Exception as exc:
+        raise GuardError(f"synthetic mode cannot read the event record: {exc}") from exc
+    if not isinstance(meta, dict) or meta.get("synthetic") is not True:
+        raise GuardError("synthetic mode needs meta.synthetic true in the event record")
+    if not manifest_path.is_file():
+        raise GuardError(f"manifest file missing: {manifest_path}")
+    lines = [ln for ln in manifest_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    try:
+        entries = [json.loads(ln) for ln in lines]
+    except ValueError as exc:
+        raise GuardError(f"synthetic mode cannot parse the manifest: {exc}") from exc
+    if not entries or any(not isinstance(e, dict) or e.get("synthetic") is not True for e in entries):
+        raise GuardError("synthetic mode needs synthetic true on every manifest line")
+
+
+def _raise_on_plan_problems(store: Store, plan_path: Path) -> None:
+    """A planned file that is missing, repaired or not ok stops the run (rule 2): it is never an exclusion."""
+    problems = store.plan_problems(json.loads(plan_path.read_text(encoding="utf-8")))
+    if problems:
+        shown = "; ".join(problems[:5])
+        extra = f" (and {len(problems) - 5} more)" if len(problems) > 5 else ""
+        raise GuardError(f"planned files are not all downloaded cleanly: {shown}{extra}")
+
+
 def run_pipeline(
     events_path: Path | str,
     plan_path: Path | str,
@@ -287,11 +321,11 @@ def run_pipeline(
     synthetic_marker = data_dir_p / "SYNTHETIC"
     is_synthetic = synthetic_marker.exists()
 
-    # The marker alone never disables a guard: it is refused for the frozen record, and a real run needs that record.
+    # The marker alone never disables a guard, and a real run needs the frozen record.
     events_hash = sha256_file(events_path)
-    if is_synthetic and events_hash == FROZEN_EVENTS_SHA256:
-        raise GuardError("the SYNTHETIC marker is refused for the frozen event record")
-    if not is_synthetic and events_hash != FROZEN_EVENTS_SHA256:
+    if is_synthetic:
+        _check_synthetic_allowed(events_path, data_dir_p / "manifest.jsonl", events_hash)
+    elif events_hash != FROZEN_EVENTS_SHA256:
         raise GuardError("the event record differs from the frozen record (lock.EVENTS_SHA256)")
 
     git_info: dict[str, Any]
@@ -373,6 +407,7 @@ def run_pipeline(
     manifest_hash = sha256_file(manifest_file) if manifest_file.is_file() else ""
 
     store = store_cls(data_dir_p)
+    _raise_on_plan_problems(store, plan_p)
     trials_report = report.run_trials(record, pairs, store)
 
     result_obj: dict[str, Any] = {

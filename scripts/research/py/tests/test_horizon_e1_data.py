@@ -567,3 +567,48 @@ def test_bars_index_of_and_slice():
     assert len(empty) == 0
     assert empty.index_of(10_000) == -1
     assert len(empty.slice_ms(0, 10_000)) == 0
+
+
+def test_one_letter_symbol_is_read(tmp_path: Path):
+    """The D token trades as DUSDT: a one-letter ticker must pass the symbol guard and read back exactly."""
+    day = "2026-01-02"
+    day_start_ms = int(dt.datetime(2026, 1, 2, tzinfo=dt.UTC).timestamp() * 1000)
+    rows = [[day_start_ms + i * 60_000, 0.5, 0.6, 0.4, 0.55, 10.0, 5.0, 3, 1.0, 0.5] for i in range(3)]
+    path = tmp_path / "klines" / "DUSDT" / f"DUSDT-1m-{day}.csv.gz"
+    h, size = make_kline_gz(path, rows)
+    entry = {"kind": "klines", "symbol": "DUSDT", "date": day, "status": "ok", "rows": 3, "sha256": h, "bytes": size}
+    write_manifest(tmp_path / "manifest.jsonl", [entry])
+    bars = data_mod.Store(tmp_path).klines("DUSDT", day)
+    assert bars is not None
+    assert list(bars.open) == [0.5, 0.5, 0.5]
+    with pytest.raises(data_mod.DataError, match="invalid symbol"):
+        data_mod.Store(tmp_path).klines("USDT", day)
+
+
+def test_plan_problems(tmp_path: Path):
+    """A planned file must have an ok manifest line with no duplicates and no bad rows (rule 2, rule 13)."""
+    ok = {"kind": "klines", "symbol": "AAAUSDT", "date": "2026-03-01", "status": "ok", "duplicates": 0, "badRows": 0}
+    missing = {"kind": "klines", "symbol": "BBBUSDT", "date": "2026-03-01", "status": "missing"}
+    dup = {"kind": "klines", "symbol": "CCCUSDT", "date": "2026-03-01", "status": "ok", "duplicates": 2, "badRows": 0}
+    bad = {"kind": "funding", "symbol": "AAAUSDT", "date": "2026-03", "status": "ok", "duplicates": 0, "badRows": 1}
+    fine = {"kind": "funding", "symbol": "BBBUSDT", "date": "2026-03", "status": "ok"}
+    write_manifest(tmp_path / "manifest.jsonl", [ok, missing, dup, bad, fine])
+    store = data_mod.Store(tmp_path)
+    plan = {
+        "version": 1,
+        "klines": [
+            {"symbol": "AAAUSDT", "day": "2026-03-01"},
+            {"symbol": "BBBUSDT", "day": "2026-03-01"},
+            {"symbol": "CCCUSDT", "day": "2026-03-01"},
+            {"symbol": "DDDUSDT", "day": "2026-03-01"},
+        ],
+        "funding": [{"symbol": "AAAUSDT", "month": "2026-03"}, {"symbol": "BBBUSDT", "month": "2026-03"}],
+    }
+    problems = store.plan_problems(plan)
+    assert problems == [
+        "klines BBBUSDT 2026-03-01: manifest status 'missing'",
+        "klines CCCUSDT 2026-03-01: manifest records 2 duplicates and 0 bad rows",
+        "klines DDDUSDT 2026-03-01: no manifest line",
+        "funding AAAUSDT 2026-03: manifest records 0 duplicates and 1 bad rows",
+    ]
+    assert store.plan_problems({"version": 1, "klines": [plan["klines"][0]], "funding": [plan["funding"][1]]}) == []

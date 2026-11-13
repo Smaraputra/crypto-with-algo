@@ -14,7 +14,7 @@ import numpy as np
 
 from horizon.e1 import lock
 
-SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,20}USDT$")
+SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,20}USDT$")
 DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
@@ -139,6 +139,32 @@ class Store:
             if isinstance(exc, DataError):
                 raise
             raise DataError(f"failed to read manifest {manifest_path}: {exc}") from exc
+
+    def plan_problems(self, plan: dict) -> list[str]:
+        """Plan jobs whose manifest line is absent, not ok, or records duplicates or bad rows (no file is opened).
+
+        A listed day that failed to download, or a file the downloader had to repair, stops the run: it is never an
+        exclusion (rule 2).
+        """
+        problems: list[str] = []
+        for kind, jobs, field in (
+            ("klines", plan.get("klines", []), "day"),
+            ("funding", plan.get("funding", []), "month"),
+        ):
+            for job in jobs:
+                key = (kind, job["symbol"], job[field])
+                label = f"{kind} {job['symbol']} {job[field]}"
+                entry = self._manifest.get(key)
+                if entry is None:
+                    problems.append(f"{label}: no manifest line")
+                elif entry.get("status") != "ok":
+                    problems.append(f"{label}: manifest status {entry.get('status')!r}")
+                elif entry.get("duplicates", 0) or entry.get("badRows", 0):
+                    problems.append(
+                        f"{label}: manifest records {entry.get('duplicates', 0)} duplicates and "
+                        f"{entry.get('badRows', 0)} bad rows"
+                    )
+        return problems
 
     def klines(self, symbol: str, day: str) -> Bars | None:
         """Read 1m klines for one symbol and UTC day."""

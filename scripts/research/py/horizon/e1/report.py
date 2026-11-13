@@ -17,38 +17,10 @@ from horizon.e1.stats import Unit, describe, judge_trial, make_clusters
 __all__ = ["g0_live_delay_ok", "run_trials"]
 
 
-class FlexibleKeyDict(dict):
-    """Dictionary supporting key access by int or string representation of an int."""
-
-    def __getitem__(self, key: Any) -> Any:
-        if key in self:
-            return super().__getitem__(key)
-        if isinstance(key, str) and (key.isdigit() or (key.startswith("-") and key[1:].isdigit())):
-            int_k = int(key)
-            if int_k in self:
-                return super().__getitem__(int_k)
-        elif isinstance(key, int):
-            str_k = str(key)
-            if str_k in self:
-                return super().__getitem__(str_k)
-        return super().__getitem__(key)
-
-    def __contains__(self, key: Any) -> bool:
-        if super().__contains__(key):
-            return True
-        if isinstance(key, str) and (key.isdigit() or (key.startswith("-") and key[1:].isdigit())):
-            return super().__contains__(int(key))
-        if isinstance(key, int):
-            return super().__contains__(str(key))
-        return False
-
-
 def to_json_safe(obj: Any) -> Any:
     """Recursively convert objects to JSON-safe primitives, replacing NaN and inf with None."""
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return to_json_safe(dataclasses.asdict(obj))
-    if isinstance(obj, FlexibleKeyDict):
-        return FlexibleKeyDict({k: to_json_safe(v) for k, v in obj.items()})
     if isinstance(obj, dict):
         return {k: to_json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -78,6 +50,29 @@ def g0_live_delay_ok(trial_result: dict) -> bool:
     if live_mean is None or not isinstance(live_mean, (int, float)) or math.isnan(live_mean):
         return False
     return bool(live_mean >= lock.PASS_MIN_MEAN)
+
+
+def _reconcile_with_preprint(pairs: Sequence[Pair]) -> dict[str, Any]:
+    """First-time class T tags and announcements by year against the preprint's Table 1 (rule 10)."""
+    by_year: dict[int, dict[str, Any]] = {}
+    for p in pairs:
+        if p.cls != lock.CLASS_T:
+            continue
+        year = dt.datetime.fromtimestamp(p.stamp_ms / 1000, tz=dt.UTC).year
+        row = by_year.setdefault(year, {"codes": set(), "tags": 0})
+        row["codes"].add(p.code)
+        row["tags"] += 1
+    out: dict[str, Any] = {}
+    for year in sorted(set(by_year) | set(lock.PREPRINT_TABLE1)):
+        rec = by_year.get(year, {"codes": set(), "tags": 0})
+        pre_events, pre_tags = lock.PREPRINT_TABLE1.get(year, (None, None))
+        out[str(year)] = {
+            "record_announcements": len(rec["codes"]),
+            "record_first_time_tags": rec["tags"],
+            "preprint_announcements": pre_events,
+            "preprint_first_time_tags": pre_tags,
+        }
+    return out
 
 
 def run_trials(
@@ -115,6 +110,22 @@ def run_trials(
         cls_all_pairs = [p for p in pairs if p.cls == cls]
         eligible_pairs = [p for p in cls_all_pairs if record_status(p) is None]
 
+        # Rule 2: every excluded pair is listed with its reason, including the ones the record excludes.
+        for p in cls_all_pairs:
+            status = record_status(p)
+            if status is not None:
+                pairs_rows.append(
+                    {
+                        "trial_id": trial_id,
+                        "token": p.token,
+                        "symbol": p.symbol,
+                        "code": p.code,
+                        "stamp_ms": p.stamp_ms,
+                        "status": "record_excluded",
+                        "reason": status,
+                    }
+                )
+
         sim_results: list[tuple[Pair, trade.TradeResult]] = []
         for p in eligible_pairs:
             res = trade.simulate(p, store, horizon_hours=h)
@@ -125,7 +136,6 @@ def run_trials(
                 "token": res.token,
                 "symbol": res.symbol,
                 "code": p.code,
-                "stamp": p.stamp_ms,
                 "stamp_ms": p.stamp_ms,
                 "horizon_hours": res.horizon_hours,
                 "delay_minutes": res.delay_minutes,
@@ -140,6 +150,7 @@ def run_trials(
                 "bx": res.bx,
                 "stopped": res.stopped,
                 "truncated": res.truncated,
+                "btc_carried": res.btc_carried,
                 "funding_gap": res.funding_gap,
                 "n_settlements": res.n_settlements,
                 "gross_token": res.gross_token,
@@ -166,7 +177,7 @@ def run_trials(
         n_data_missing = record_status_counts[cls]["data_missing"]
         numerator = n_data_missing + n_entry_bar + n_btc_missing
         denominator = n_data_missing + n_ok + n_entry_bar + n_btc_missing
-        excluded_share = (float(numerator) / denominator) if denominator > 0 else 0.0
+        excluded_share = (float(numerator) / denominator) if denominator > 0 else float("nan")
 
         # 4. Units and clusters
         code_to_results: dict[str, list[trade.TradeResult]] = {}
@@ -191,7 +202,7 @@ def run_trials(
             "tokens": len(cls_all_pairs),
             "tokens_with_symbol": sum(1 for p in cls_all_pairs if p.symbol is not None),
             "eligible_by_record": len(eligible_pairs),
-            "eligible_tokens": len(eligible_pairs),
+            "eligible_tokens": n_ok,
             "simulated": len(sim_results),
             "ok": n_ok,
             "exclusions": {
@@ -202,16 +213,11 @@ def run_trials(
                 "entry_bar": n_entry_bar,
                 "btc_missing": n_btc_missing,
             },
-            "no_symbol": record_status_counts[cls]["no_symbol"],
-            "futures_delist_pending": record_status_counts[cls]["futures_delist_pending"],
-            "data_missing": n_data_missing,
-            "activity": n_activity,
-            "entry_bar": n_entry_bar,
-            "btc_missing": n_btc_missing,
             "units": len(units),
             "clusters": len(clusters),
             "truncated": sum(1 for r in ok_results if r.truncated),
             "stopped": sum(1 for r in ok_results if r.stopped),
+            "btc_carried": sum(1 for r in ok_results if r.btc_carried),
             "funding_gap": sum(1 for r in ok_results if r.funding_gap),
         }
 
@@ -232,11 +238,8 @@ def run_trials(
 
         desc_table = {
             "net": describe(cluster_net_values),
-            "gross": describe(gross_values),
             "gross_hedged": describe(gross_values),
-            "unhedged": describe(unhedged_values),
             "unhedged_net": describe(unhedged_values),
-            "stress": describe(stress_values),
             "net_stress": describe(stress_values),
         }
 
@@ -245,22 +248,18 @@ def run_trials(
         for c in clusters:
             y = dt.datetime.fromtimestamp(c.entry_ms / 1000, tz=dt.UTC).year
             year_vals.setdefault(y, []).append(c.value)
-        by_year = FlexibleKeyDict(
-            {
-                y: {
-                    "count": len(v_list),
-                    "n": len(v_list),
-                    "mean": float(np.mean(v_list)),
-                }
-                for y, v_list in sorted(year_vals.items())
-            }
-        )
+        by_year = {
+            str(y): {"count": len(v_list), "mean": float(np.mean(v_list))} for y, v_list in sorted(year_vals.items())
+        }
 
         # 5d. delay_profile
-        delay_profile_dict: dict[int, dict[str, Any]] = {}
+        # The delay-d statistic is the full trial with another entry minute over the same pairs: the pairs the trial
+        # priced successfully. A pair that fails a check at the later entry minute drops out of that delay only.
+        delay_profile: dict[str, dict[str, Any]] = {}
+        trial_pairs = [p for p, _ in ok_results_pairs]
         for d in lock.DELAY_PROFILE_MINUTES:
-            sim_d = [trade.simulate(p, store, horizon_hours=h, delay_minutes=d) for p in eligible_pairs]
-            ok_d = [(p, r) for p, r in zip(eligible_pairs, sim_d, strict=True) if r.status == "ok"]
+            sim_d = [trade.simulate(p, store, horizon_hours=h, delay_minutes=d) for p in trial_pairs]
+            ok_d = [(p, r) for p, r in zip(trial_pairs, sim_d, strict=True) if r.status == "ok"]
             code_to_r_d: dict[str, list[trade.TradeResult]] = {}
             for p, r in ok_d:
                 code_to_r_d.setdefault(p.code, []).append(r)
@@ -278,15 +277,9 @@ def run_trials(
             clusters_d = make_clusters(units_d, gap_hours=lock.CLUSTER_GAP_HOURS)
             n_c_d = len(clusters_d)
             mean_c_d = float(np.mean([c.value for c in clusters_d])) if n_c_d > 0 else float("nan")
-            delay_profile_dict[d] = {
-                "delay_minutes": d,
-                "n_clusters": n_c_d,
-                "clusters": n_c_d,
-                "mean": mean_c_d,
-            }
+            delay_profile[str(d)] = {"delay_minutes": d, "n_clusters": n_c_d, "mean": mean_c_d}
 
-        delay_profile = FlexibleKeyDict(delay_profile_dict)
-        delay_profile_live_mean = delay_profile[lock.LIVE_DELAY_MINUTES]["mean"]
+        delay_profile_live_mean = delay_profile[str(lock.LIVE_DELAY_MINUTES)]["mean"]
 
         # 5e. excursion
         adv_arr = np.array([r.max_adverse for r in ok_results], dtype=np.float64)
@@ -295,15 +288,10 @@ def run_trials(
                 "max": float("nan"),
                 "median": float("nan"),
                 "p90": float("nan"),
-                "percentile_90": float("nan"),
                 "count_stop": 0,
-                "n_stopped": 0,
-                "share_stop": 0.0,
-                "share_stopped": 0.0,
+                "share_stop": float("nan"),
                 "count_liquidation": 0,
-                "n_liquidation": 0,
-                "share_liquidation": 0.0,
-                "share_liquidation_proxy": 0.0,
+                "share_liquidation": float("nan"),
             }
         else:
             c_stop = int(np.count_nonzero(adv_arr >= lock.STOP_ADVERSE))
@@ -312,15 +300,10 @@ def run_trials(
                 "max": float(np.max(adv_arr)),
                 "median": float(np.median(adv_arr)),
                 "p90": float(np.quantile(adv_arr, 0.90, method="linear")),
-                "percentile_90": float(np.quantile(adv_arr, 0.90, method="linear")),
                 "count_stop": c_stop,
-                "n_stopped": c_stop,
                 "share_stop": float(c_stop / len(adv_arr)),
-                "share_stopped": float(c_stop / len(adv_arr)),
                 "count_liquidation": c_liq,
-                "n_liquidation": c_liq,
                 "share_liquidation": float(c_liq / len(adv_arr)),
-                "share_liquidation_proxy": float(c_liq / len(adv_arr)),
             }
 
         # 5f. funding
@@ -346,11 +329,7 @@ def run_trials(
                         }
                     )
                     break
-        futures_delist_before_exit = {
-            "count": len(fd_matches),
-            "list": fd_matches,
-            "items": fd_matches,
-        }
+        futures_delist_before_exit = {"count": len(fd_matches), "items": fd_matches}
 
         # 5h. tag_overlap (class D only)
         tag_overlap = None
@@ -387,18 +366,13 @@ def run_trials(
             med_latest = float(np.median(latest_lags)) if latest_lags else float("nan")
 
             tag_overlap = {
-                "share": share_tagged,
                 "share_previously_tagged": share_tagged,
-                "previously_tagged_mean_net": mean_prev,
-                "never_tagged_mean_net": mean_never,
                 "mean_net_previously_tagged": mean_prev,
                 "mean_net_never_tagged": mean_never,
                 "first_tag_lags": first_lags,
                 "median_first_tag_lag": med_first,
-                "median_first_lag": med_first,
                 "latest_tag_lags": latest_lags,
                 "median_latest_tag_lag": med_latest,
-                "median_latest_lag": med_latest,
             }
 
         trial_dict: dict[str, Any] = {
@@ -421,6 +395,7 @@ def run_trials(
     result = {
         "trials": trials,
         "record_status_counts": record_status_counts,
+        "reconciliation": _reconcile_with_preprint(pairs),
         "pairs_rows": pairs_rows,
     }
     return to_json_safe(result)
