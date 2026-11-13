@@ -586,9 +586,11 @@ def test_confirm_prepare_writes_the_record_and_stops_and_run_needs_it(planted, t
     panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
     ids = [f["config_id"] for f in read_json(dev_dir / "finalists.json")["finalists"]]
     assert ids
+    # the real lock's own record and marker may be committed, so compare against what is there now
+    real_before = sorted(q.name for q in run.RECORDS_DIR.glob("confirm_*"))
     with pytest.raises(SystemExit, match="no confirm record"):
         run_confirm(panel, dev_dir, tmp_path / "early")
-    assert not (run.RECORDS_DIR / "confirm_record.json").exists()
+    assert sorted(q.name for q in run.RECORDS_DIR.glob("confirm_*")) == real_before
     with pytest.raises(SystemExit, match="exactly one of"):
         run.cmd_confirm(confirm_args(panel, dev_dir, tmp_path / "x", prepare=True, run=True))
     with pytest.raises(SystemExit, match="exactly one of"):
@@ -596,7 +598,7 @@ def test_confirm_prepare_writes_the_record_and_stops_and_run_needs_it(planted, t
     record_path = prepare_confirm(panel, dev_dir)
     # a synthetic rehearsal never touches records/: its record sits in the out dir with a synthetic suffix
     assert record_path == dev_dir / "confirm_record.synthetic.json"
-    assert not (run.RECORDS_DIR / "confirm_record.json").exists()
+    assert sorted(q.name for q in run.RECORDS_DIR.glob("confirm_*")) == real_before
     record = read_json(record_path)
     assert record["finalists"] == ids and record["ran"] is False and record["lock_sha256"] == lock.lock_digest()
     assert record["dev_hashes"]["dev_result.json"] == read_json(dev_dir / "dev_result.json")["content_sha256"]
@@ -609,6 +611,8 @@ def test_confirm_prepare_writes_the_record_and_stops_and_run_needs_it(planted, t
 def test_confirm_run_checks_finalists_runs_once_and_applies_holm(planted, tmp_path, relaxed, monkeypatch):
     panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
     ids = [f["config_id"] for f in read_json(dev_dir / "finalists.json")["finalists"]]
+    # the real lock's own record and marker may be committed, so compare against what is there now
+    real_before = sorted(q.name for q in run.RECORDS_DIR.glob("confirm_*"))
     out = tmp_path / "confirm"
     prepare_confirm(panel, dev_dir, out=out)
     res = read_json(run_confirm(panel, dev_dir, out))
@@ -637,7 +641,7 @@ def test_confirm_run_checks_finalists_runs_once_and_applies_holm(planted, tmp_pa
     assert res["confirm_record_sha256"] == record["content_sha256"]
     marker = paths.marker
     assert marker.name.endswith(".synthetic.json") and marker.parent == out
-    assert not list(run.RECORDS_DIR.glob("confirm_ran_*"))  # nothing consumed in records/
+    assert sorted(q.name for q in run.RECORDS_DIR.glob("confirm_*")) == real_before  # nothing new consumed in records/
     marker_doc = read_json(marker)
     assert res["consumed_marker_sha256"] == marker_doc["content_sha256"]
     assert marker_doc["status"] == "started" and marker_doc["attempt"] == 1 and marker_doc["synthetic"] is True
