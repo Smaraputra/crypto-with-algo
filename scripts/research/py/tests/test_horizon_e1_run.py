@@ -778,3 +778,28 @@ def test_real_run_refuses_a_record_that_is_not_the_frozen_one(tmp_path: Path) ->
 def test_lock_events_sha256_is_the_committed_record() -> None:
     record = Path(__file__).resolve().parents[1] / "records" / "horizon_e1_events.json"
     assert hashlib.sha256(record.read_bytes()).hexdigest() == lock.EVENTS_SHA256
+
+
+def test_data_check_counts_files_and_flags_a_tampered_one(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """data-check reads every planned file for structure only: counts them, and names a file whose hash differs."""
+    world = _setup_world(tmp_path)
+    plan = json.loads(world["plan_path"].read_text(encoding="utf-8"))
+    n_klines, n_funding = len(plan["klines"]), len(plan["funding"])
+    assert n_klines > 0 and n_funding > 0
+
+    args = ["data-check", "--plan", str(world["plan_path"]), "--data-dir", str(world["data_dir"])]
+    assert main(args) == 0
+    report_ok = json.loads(capsys.readouterr().out)
+    assert report_ok["problems"] == []
+    assert report_ok["klines_ok"] + report_ok["klines_missing"] == n_klines
+    assert report_ok["funding_ok"] + report_ok["funding_missing"] == n_funding
+    assert report_ok["rows"] > 0
+
+    job = plan["klines"][0]
+    victim = world["data_dir"] / "klines" / job["symbol"] / f"{job['symbol']}-1m-{job['day']}.csv.gz"
+    victim.write_bytes(victim.read_bytes() + b"x")
+    assert main(args) == 1
+    report_bad = json.loads(capsys.readouterr().out)
+    assert len(report_bad["problems"]) == 1
+    assert job["symbol"] in report_bad["problems"][0]
+    assert "sha256" in report_bad["problems"][0]

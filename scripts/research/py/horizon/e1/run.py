@@ -225,6 +225,49 @@ def register_check(
     return result, exit_code
 
 
+def data_check(plan_path: Path | str, data_dir: Path | str, *, store_cls: type = Store) -> tuple[dict[str, Any], int]:
+    """Parse every file of the plan through the guarded reader and report structure only (subcommand data-check).
+
+    It counts files and rows and lists problems. It computes no return, no statistic and reads no price into any
+    result, so it is safe to run before registration.
+    """
+    plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+    store = store_cls(Path(data_dir))
+    kline_ok = kline_missing = funding_ok = funding_missing = rows = 0
+    problems: list[str] = []
+    for job in plan.get("klines", []):
+        try:
+            bars = store.klines(job["symbol"], job["day"])
+        except Exception as exc:
+            problems.append(f"klines {job['symbol']} {job['day']}: {exc}")
+            continue
+        if bars is None:
+            kline_missing += 1
+        else:
+            kline_ok += 1
+            rows += len(bars)
+    for job in plan.get("funding", []):
+        try:
+            funding = store.funding_month(job["symbol"], job["month"])
+        except Exception as exc:
+            problems.append(f"funding {job['symbol']} {job['month']}: {exc}")
+            continue
+        if funding is None:
+            funding_missing += 1
+        else:
+            funding_ok += 1
+            rows += len(funding)
+    summary = {
+        "funding_missing": funding_missing,
+        "funding_ok": funding_ok,
+        "klines_missing": kline_missing,
+        "klines_ok": kline_ok,
+        "problems": problems,
+        "rows": rows,
+    }
+    return summary, (0 if not problems else 1)
+
+
 def run_pipeline(
     events_path: Path | str,
     plan_path: Path | str,
@@ -396,6 +439,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--data-dir", required=True, type=Path, help="Path to data directory.")
     p_check.add_argument("--anchor", required=False, default=None, type=Path, help="Path to registration anchor JSON.")
 
+    p_data = subparsers.add_parser("data-check", help="Parse every planned file and report structure only.")
+    p_data.add_argument("--plan", required=True, type=Path, help="Path to fetch plan JSON.")
+    p_data.add_argument("--data-dir", required=True, type=Path, help="Path to data directory.")
+
     p_run = subparsers.add_parser("run", help="Run trials with guards.")
     p_run.add_argument("--events", required=True, type=Path, help="Path to event record JSON.")
     p_run.add_argument("--plan", required=True, type=Path, help="Path to fetch plan JSON.")
@@ -432,6 +479,11 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
         if args.cmd == "register-check":
             report_dict, code = register_check(args.events, args.plan, args.data_dir, args.anchor)
             print(json.dumps(report_dict, sort_keys=True, indent=1))
+            return code
+
+        if args.cmd == "data-check":
+            check_dict, code = data_check(args.plan, args.data_dir)
+            print(json.dumps(check_dict, sort_keys=True, indent=1))
             return code
 
         if args.cmd == "run":
