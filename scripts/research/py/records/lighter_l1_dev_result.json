@@ -776,10 +776,16 @@
  },
  "finalists": [],
  "confirmation": {
-  "run": false,
+  "run": true,
   "slice": "2026-07-01 to 2026-10-31",
-  "read": false,
-  "reason": "With zero finalists there is nothing to confirm. The slice stays unread."
+  "finalists": 0,
+  "results": [],
+  "returns_computed_on_slice": false,
+  "read": "metadata only: fold-day counts and eligibility, Binance file checks, price-scale scan",
+  "record_file": "confirm_record.json (committed a46af231 before the run)",
+  "marker_file": "confirm_ran_3ef5101e894dc44b.json",
+  "result_file": "lighter_l1_confirm_result.json",
+  "note": "First committed (9ce5987a) as not run, with a recommendation not to run it. The owner then asked for confirm to run anyway on 2026-11-13, so this field was updated in the same pull request."
  },
  "prediction": "Registered 2026-11-11 by the lead before any run: no finalist passes the confirmation slice. Most likely no configuration passes development item (b).",
  "prediction_outcome": "Held: no configuration passes development item (b); the largest daily t is 1.69 against a threshold of 3.0.",
