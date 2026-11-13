@@ -169,9 +169,9 @@ writes).
    below 0.01 needs one value far above the rest, and that spread also pushes the t bound below zero, so (c) is a
    reported check and not an extra protection); (d) the number of clusters is at least MIN_CLUSTERS = 10; (e) per trial,
    among the pairs that passed checks (s1) and (s2) of rule 2 and did not fail (s4) (a pair with a missing archive day
-   counts as not failing it), the share excluded by (s3) or (s5) is at most MAX_EXCLUDED_SHARE = 10%. Clauses (d) and
-   (e) are the lead's additions to the plan's kill line, and (c) is implied by (a) and (b) (mean net not below -2%,
-   interval includes zero, or the fall is all inside the first minute). The third clause of the plan is enforced by
+   counts as not failing it), the share excluded by (s3) or (s5) is at most MAX_EXCLUDED_SHARE = 10%. The plan's kill
+   line was: mean net not below -2%, interval includes zero, or the fall is all inside the first minute. Clauses (d) and
+   (e) are the lead's additions to it, and (c) is implied by (a) and (b). The third clause of the plan is enforced by
    construction: no price before the entry minute is part of any result. Passing none of the trials is a result: the
    idea is closed for tier 2 and no part of it is rerun with other settings. A class T pass is in-sample, because the
    events generated the hypothesis: it shows that the effect survives execution cost, funding and the stop, not that an
