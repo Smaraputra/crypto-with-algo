@@ -45,7 +45,9 @@ REGISTRATION ANCHOR. scripts/research/py/records/horizon_e1_registration.json (o
 at registration) holds the lock digest, the sha256 of the frozen event record, the sha256 of the fetch plan, the sha256
 of the manifest of the downloaded files, and the owner's signature (the date and the lock digest the owner signed in
 chat). The command register-check prints what the file should contain. The commands that read prices refuse to run when
-the file is absent or anything differs.
+the file is absent or anything differs. The frozen record's sha256 is also the constant EVENTS_SHA256 of this module: a
+real run refuses any other record, and the SYNTHETIC marker of a data folder is refused for this one (the marker alone
+never disables a guard).
 
 1. EVENTS (frozen). The frozen event record is scripts/research/py/records/horizon_e1_events.json, written once by
    horizon/e1/scan_events.py on 2026-11-13 UTC (scan time in its meta) from Binance's public announcement lists (general
@@ -278,6 +280,7 @@ PASS_LOO_MIN_MEAN = 0.01
 MIN_CLUSTERS = 10
 
 EVENTS_RECORD = "scripts/research/py/records/horizon_e1_events.json"
+EVENTS_SHA256 = "41009340d52315e833dbc7c0b89bdbd91bea9a8bf661b038a55ba8e91b141d89"  # sha256 of that file
 REGISTRATION_ANCHOR = "scripts/research/py/records/horizon_e1_registration.json"
 
 __all__ = [
