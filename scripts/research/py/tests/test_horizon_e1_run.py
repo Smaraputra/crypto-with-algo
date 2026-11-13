@@ -346,7 +346,7 @@ def test_register_check_command(tmp_path: Path, capsys: pytest.CaptureFixture[st
 
 
 def test_run_synthetic_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Requirement 3: run in synthetic mode outputs result, files_read, trial ids, no verdict, refuses overwrite."""
+    """Requirement 3: run in synthetic mode outputs the result record, files_read, trial ids, refuses overwrite."""
     world = _setup_world(tmp_path)
     events_p = world["events_path"]
     plan_p = world["plan_path"]
@@ -377,8 +377,25 @@ def test_run_synthetic_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
 
     result = json.loads(out_p.read_text(encoding="utf-8"))
     assert result["synthetic"] is True
-    assert "verdict" not in result
-    assert "verdict" not in result.get("report", {})
+    # The result file is a record, not an interpretation: exactly these keys, bound to the registered code.
+    assert set(result) == {
+        "constants",
+        "events_sha256",
+        "files_read",
+        "freeze_ms",
+        "hard_last_date",
+        "ledger_id",
+        "lock",
+        "manifest_sha256",
+        "plan_sha256",
+        "prediction",
+        "report",
+        "synthetic",
+        "versions",
+    }
+    assert result["lock"]["digest"] == lock.lock_digest()
+    assert result["ledger_id"] == lock.LEDGER_ID
+    assert result["prediction"] == lock.PREDICTION
 
     report_trials = result.get("report", {}).get("trials", {})
     for tid in lock.TRIAL_IDS:
