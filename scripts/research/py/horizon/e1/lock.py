@@ -165,20 +165,22 @@ writes).
    trial drawing rng.integers(0, n, size=(BOOT_RESAMPLES, n)) cluster indices (n clusters; every trial draws, including
    one that fails clause (d)); the t bound is mean - t.ppf(1 - TRIAL_ALPHA, n - 1) x s / sqrt(n) with s the sample
    standard deviation (ddof 1); (c) the leave-one-cluster-out mean, minimised over clusters, is at least
-   PASS_LOO_MIN_MEAN = +0.01; (d) the number of clusters is at least MIN_CLUSTERS = 10; (e) per trial, among the pairs
-   that passed checks (s1) and (s2) of rule 2 and did not fail (s4) (a pair with a missing archive day counts as not
-   failing it), the share excluded by (s3) or (s5) is at most MAX_EXCLUDED_SHARE = 10%. Clauses (c), (d) and (e) are the
-   lead's additions to the plan's kill line (mean net not below -2%, interval includes zero, or the fall is all inside
-   the first minute). The third clause of the plan is enforced by construction: no price before the entry minute is part
-   of any result. Passing none of the trials is a result: the idea is closed for tier 2 and no part of it is rerun with
-   other settings. A class T pass is in-sample, because the events generated the hypothesis: it shows that the effect
-   survives execution cost, funding and the stop, not that an edge exists, and it does not move the tier 2 prior beyond
-   what forward events show. A trial that passes reaches gate G0 of the tier 2 plan only if (i) its delay profile (rule
-   10) has a mean of at least +0.02 at LIVE_DELAY_MINUTES = 6 after m0 (the delay-d statistic is the full trial of rules
-   3 to 8 with ENTRY_DELAY_MINUTES replaced by d and te = entry + h, over the pairs the trial priced successfully, a
-   pair that fails a check at the later entry minute dropping out of that delay only), the delay that a 5-minute
-   recorder plus one minute of work can sustain, or (ii) the owner accepts, at G0, a recorder whose measured 95th
-   percentile of stamp-to-order latency is under 60 seconds.
+   PASS_LOO_MIN_MEAN = +0.01 (given (a) and (b) this always holds, whatever the number of clusters: a leave-one-out mean
+   below 0.01 needs one value far above the rest, and that spread also pushes the t bound below zero, so (c) is a
+   reported check and not an extra protection); (d) the number of clusters is at least MIN_CLUSTERS = 10; (e) per trial,
+   among the pairs that passed checks (s1) and (s2) of rule 2 and did not fail (s4) (a pair with a missing archive day
+   counts as not failing it), the share excluded by (s3) or (s5) is at most MAX_EXCLUDED_SHARE = 10%. Clauses (d) and
+   (e) are the lead's additions to the plan's kill line, and (c) is implied by (a) and (b) (mean net not below -2%,
+   interval includes zero, or the fall is all inside the first minute). The third clause of the plan is enforced by
+   construction: no price before the entry minute is part of any result. Passing none of the trials is a result: the
+   idea is closed for tier 2 and no part of it is rerun with other settings. A class T pass is in-sample, because the
+   events generated the hypothesis: it shows that the effect survives execution cost, funding and the stop, not that an
+   edge exists, and it does not move the tier 2 prior beyond what forward events show. A trial that passes reaches gate
+   G0 of the tier 2 plan only if (i) its delay profile (rule 10) has a mean of at least +0.02 at LIVE_DELAY_MINUTES = 6
+   after m0 (the delay-d statistic is the full trial of rules 3 to 8 with ENTRY_DELAY_MINUTES replaced by d and te =
+   entry + h, over the pairs the trial priced successfully, a pair that fails a check at the later entry minute dropping
+   out of that delay only), the delay that a 5-minute recorder plus one minute of work can sustain, or (ii) the owner
+   accepts, at G0, a recorder whose measured 95th percentile of stamp-to-order latency is under 60 seconds.
 
 10. REPORTED, NOT JUDGED (descriptive, no trial, cannot rescue a failed trial). For every trial and class: counts of
     announcements, tokens, tokens with a symbol, eligible tokens and clusters, with exclusion reasons and the by-year
