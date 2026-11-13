@@ -1,0 +1,787 @@
+{
+ "kind": "lighter-l1-development-result",
+ "ledger_id": "lighter-l1",
+ "result": "NO FINALIST",
+ "date_utc": "2026-11-13",
+ "report_generated_at": "2026-11-13T05:16:08+00:00",
+ "lock_sha256": "3ef5101e894dc44b323b2985ec8e982bf785cb461ba4fe2b376ed036b61f5cde",
+ "git_head": "82a83d4fd103159cd30115f20b5a5f778dcf739c",
+ "git_source": "attested by environment",
+ "synthetic": false,
+ "versions": {
+  "numpy": "2.5.4",
+  "pandas": "3.0.6",
+  "pyarrow": "26.0.0"
+ },
+ "vps_out_dir": "~/lighter-track/out/stage2",
+ "files": {
+  "dev_result.json": {
+   "bytes": 27592905,
+   "sha256": "b4db90022190922d3474a670092acadf4ebb4d7bbe73d5624b4cb00092b924e2"
+  },
+  "report.json": {
+   "bytes": 7164517,
+   "sha256": "b618537e73015159bcd8e559133efffc8c57dba0ea7a2e3ffd06a2b90aeec97c"
+  },
+  "finalists.json": {
+   "bytes": 628,
+   "sha256": "26e82826e6d7936071df75e50ff874bdd144b36d87db529d67fb2501946b72d5"
+  },
+  "null_shift_1.json": {
+   "bytes": 197282,
+   "sha256": "5d84d03f5773ba9058292dbc22fdd10a9a4e94650c3578ddf22126af65f6c657"
+  },
+  "null_f6_1.json": {
+   "bytes": 77427,
+   "sha256": "2a228517fda22b3bb300edf8bbcbd2f997b2fa55bbb9f859e3d81b76453217b6"
+  },
+  "null_shift_2.json": {
+   "bytes": 197307,
+   "sha256": "10c57076b1209fc47bb584e321a3875a3baa263a021370da3b79b21ce57fe68e"
+  },
+  "null_f6_2.json": {
+   "bytes": 77426,
+   "sha256": "69bc404e071717974359a7d5d3d05152a8ae7e94b2b12447c9359675cd63f16d"
+  },
+  "null_shift_3.json": {
+   "bytes": 197316,
+   "sha256": "3e09bc318902a2269c51e24921f99fc482684af50b7bf3f1955c3f77ac455a83"
+  },
+  "null_f6_3.json": {
+   "bytes": 77435,
+   "sha256": "0a55c66fc86b9bf9b9ef12776e746d59484a5ed7abe0ba29b4e5d450ddcb40e6"
+  },
+  "null_shift_4.json": {
+   "bytes": 197307,
+   "sha256": "3c71735c55125837badeb40e8332b37ae8f3f850f733a7bc3ef34211f39b6383"
+  },
+  "null_f6_4.json": {
+   "bytes": 77425,
+   "sha256": "98e4cd051acab2ece5c6f666977c3d5601bbde784643815f7a8f0ed542e0952a"
+  },
+  "null_shift_5.json": {
+   "bytes": 197301,
+   "sha256": "65f967f5897303094490c95a0e8728f11ff9713d29aa9222c1b395dc37365d40"
+  },
+  "null_f6_5.json": {
+   "bytes": 77432,
+   "sha256": "a706fa4eeb6952b4b3c30eb98732f474df418503c9339bc2b57ca8b03385d97a"
+  },
+  "null_shift_6.json": {
+   "bytes": 197368,
+   "sha256": "0748c46ce9e96a139466b787fbe013779f6f6188186b753f8ac5513e940c229b"
+  },
+  "null_f6_6.json": {
+   "bytes": 77424,
+   "sha256": "0f9b7041fd07f6c3e20be348749be8fdd97c9397deacd08f801349aaf1839a97"
+  },
+  "null_shift_7.json": {
+   "bytes": 197340,
+   "sha256": "4992705ba5c377b6c9ecdde28d11dcd392b68734cda3fb4d38b1facdffa424e2"
+  },
+  "null_f6_7.json": {
+   "bytes": 77431,
+   "sha256": "a4b8ace3924e5260a57b8866281ebcfe2b28d47d70f45ffe2ef3c459db177fe4"
+  },
+  "null_shift_8.json": {
+   "bytes": 197318,
+   "sha256": "9e224cd519eaa9b5bc130ee955e00617b72725795170703642a23c4225a2c17d"
+  },
+  "null_f6_8.json": {
+   "bytes": 77430,
+   "sha256": "e1314071b08070d9c3a3532404ee789c9c500dad8f32ce6e89a1c24e6fbee72a"
+  },
+  "null_shift_9.json": {
+   "bytes": 197298,
+   "sha256": "498d0b17a831fcd1f7f7407b43f4f47f13dd92a7e5c5ad4f7eab991d5a15caf3"
+  },
+  "null_f6_9.json": {
+   "bytes": 77427,
+   "sha256": "0bb025c8eac91db25c1a19e7197f585386b444597238a89f950fa4a95800f5d0"
+  },
+  "null_shift_10.json": {
+   "bytes": 197292,
+   "sha256": "d563db01bc445c0788cbb6c4005a7cd8c0a1798758ce479fb6af09da04bd63df"
+  },
+  "null_f6_10.json": {
+   "bytes": 77427,
+   "sha256": "48cd46eebe8049ceb152e41e0593870a5582a4a31451893eb09e88f349ef9637"
+  },
+  "null_shift_11.json": {
+   "bytes": 197260,
+   "sha256": "5e66a85ea36c07c18ed67545e80c8ddb67236caf59abd06695250f76ccaa1e5b"
+  },
+  "null_f6_11.json": {
+   "bytes": 77437,
+   "sha256": "b0480d5e6233a6db1eef48f56e7f91ddb48a8946224ad844ef61ae51a610dbee"
+  },
+  "null_shift_12.json": {
+   "bytes": 197233,
+   "sha256": "bc80e79413e20a0b7f6540e971df2476b8780753a8b3815f4f59df24ced462ca"
+  },
+  "null_f6_12.json": {
+   "bytes": 77429,
+   "sha256": "aa69fca563f37042859c0278a845352d46e61fede19db69c39f2c6a05f418843"
+  },
+  "null_shift_13.json": {
+   "bytes": 197325,
+   "sha256": "7c9423c7943028e8a64839adeda87db6ed5315bc392e264ce31b29eea6665ac7"
+  },
+  "null_f6_13.json": {
+   "bytes": 77431,
+   "sha256": "ff6b796d237ae143765bca192e5dcb9c9e0b7147c72b82d2f1d666714b4901c4"
+  },
+  "null_shift_14.json": {
+   "bytes": 197202,
+   "sha256": "43ff9ca896fcc66da36110a6fd2f5cb75215e066d4856d2651c3f025167a6da9"
+  },
+  "null_f6_14.json": {
+   "bytes": 77429,
+   "sha256": "0948c80d547e9d387cff74ceac8cfd2d8c144acf188309fe3e4b3d252a75e025"
+  },
+  "null_shift_15.json": {
+   "bytes": 197225,
+   "sha256": "c702ff821b97370d2e4f749a2a73188d59f14346c4abe591dc63115f76fcbbb5"
+  },
+  "null_f6_15.json": {
+   "bytes": 77429,
+   "sha256": "54a17f38c535bcd54f2bf1f5f9cd569b67a6aeb39755ef6fe986a6c6847cc824"
+  },
+  "null_shift_16.json": {
+   "bytes": 197345,
+   "sha256": "4f57b0fc498d676e942685fdc394c06146780c3069a8b7ec4ba92943e49899cf"
+  },
+  "null_f6_16.json": {
+   "bytes": 77426,
+   "sha256": "ce3f04c5dd1481fe0712857cfa4a5cbd9f3448511af158d9b8e64c664b01d19b"
+  },
+  "null_shift_17.json": {
+   "bytes": 197401,
+   "sha256": "b3d7fef95959586e1c0c7e170c6d379ef01f2ec2847e3b3af4650fd20337ed35"
+  },
+  "null_f6_17.json": {
+   "bytes": 77428,
+   "sha256": "e2f138fc3d2a90e50bd37b59c186ec6b68f3dc0ec9640b5bcfb0fcea5271bf61"
+  },
+  "null_shift_18.json": {
+   "bytes": 197316,
+   "sha256": "1230becfcaeb000c3087b46d6272e34a1be4144ca6b523d7a43eb99bc8cdf15c"
+  },
+  "null_f6_18.json": {
+   "bytes": 77427,
+   "sha256": "bf24d552e3b4b5644e85126cf35262374e18b275ed5bcd33138b4c1c156ad1ab"
+  },
+  "null_shift_19.json": {
+   "bytes": 197349,
+   "sha256": "f55993a568e6b4ae5d06a792d21956d4ea8c809f247a1487c0b4a86417ddbab8"
+  },
+  "null_f6_19.json": {
+   "bytes": 77429,
+   "sha256": "86d20a564d607d00e2ae8dd51e8839f3929ec03124547830392baa9dfe3fb672"
+  },
+  "null_shift_20.json": {
+   "bytes": 197308,
+   "sha256": "ad9918aa9f0bad2eadfdf7a90591ff4093383963e42b93be5ecd8c048235eb63"
+  },
+  "null_f6_20.json": {
+   "bytes": 77429,
+   "sha256": "6da87fbb4a182a84846c05a3a81f8b9bf0ef06aa9e4863fed467c56765fc96b5"
+  }
+ },
+ "report_content_sha256": "781f5ec6e3eaaf1b91c3fbf86934be4d55a586386f990a3a54429f53a30d1557",
+ "dev_result_sha256_in_report": "7af92aac4ac79070c2a7459180e91fa7ef86a8648e1a666f990fdb3c8730a054",
+ "noise_bar": 2.7562287263998133,
+ "f6_bar": 2.1885187682380183,
+ "pass_threshold_t": 3.0,
+ "pass_threshold_t_f6": 3.0,
+ "null_runs": {
+  "f6_maxima": [
+   0.5582634605113193,
+   0.4263163606679028,
+   0.10853827170766239,
+   1.280404448990158,
+   -0.4755041055874485,
+   0.92676410182134,
+   0.20616969302830923,
+   0.8823468061503931,
+   0.7625141935455129,
+   0.7369539234870115,
+   -0.018346178253130327,
+   0.911970177784914,
+   0.9232704258241481,
+   0.23091483406318516,
+   0.9662798379088791,
+   2.030802469237869,
+   0.6204487776695248,
+   2.1885187682380183,
+   1.1187194144124037,
+   1.014408303095226
+  ],
+  "offset_days": [
+   50,
+   14,
+   21,
+   10,
+   45,
+   20,
+   40,
+   24,
+   59,
+   32,
+   9,
+   22,
+   48,
+   25,
+   42,
+   15,
+   53,
+   35,
+   41,
+   44
+  ],
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19,
+   20
+  ],
+  "shift_maxima": [
+   1.5752585083150914,
+   2.1464697734658023,
+   2.120057986332764,
+   2.7562287263998133,
+   2.293547311361127,
+   1.6707672560796107,
+   2.119630994977204,
+   1.9486455767904425,
+   1.909669463254133,
+   1.9408362235634447,
+   2.4394916519089485,
+   2.0084724328123835,
+   1.4175501181493175,
+   2.7182249590268572,
+   2.0282492807323873,
+   1.7505623286273757,
+   1.9493159547013388,
+   1.9225999175455084,
+   1.867865064089878,
+   1.8085119123611753
+  ]
+ },
+ "items_passed_counts": {
+  "a": 260,
+  "b": 0,
+  "c": 23,
+  "d": 77,
+  "e": 1997,
+  "f": 2050
+ },
+ "configurations": 2064,
+ "configurations_with_positive_mean_net": 260,
+ "configurations_with_t_at_least_2": 0,
+ "max_daily_t_f1_to_f5": 1.6919291135657006,
+ "max_daily_t_f6": 0.39203804056706587,
+ "shift_maxima_at_or_above_real_f1_to_f5_max": 17,
+ "by_family": {
+  "F1": {
+   "configurations": 324,
+   "max_daily_t": 1.529387203761997,
+   "median_daily_t": -1.2671843681165125
+  },
+  "F2": {
+   "configurations": 324,
+   "max_daily_t": 1.253550247393111,
+   "median_daily_t": -1.9194878950170142
+  },
+  "F3": {
+   "configurations": 324,
+   "max_daily_t": 1.6919291135657006,
+   "median_daily_t": -1.04808706915694
+  },
+  "F4": {
+   "configurations": 864,
+   "max_daily_t": 1.668802749924923,
+   "median_daily_t": -3.495182456467506
+  },
+  "F5": {
+   "configurations": 216,
+   "max_daily_t": 1.5165116273911243,
+   "median_daily_t": -0.9037013018589609
+  },
+  "F6": {
+   "configurations": 12,
+   "max_daily_t": 0.39203804056706587,
+   "median_daily_t": -1.2020463750601178
+  }
+ },
+ "top_12_by_daily_t": [
+  {
+   "id": "F3-k1-th1.0-h240-stop2_target2-A",
+   "daily_t": 1.6919291135657006,
+   "mean_net_bps": 9.35573290285627,
+   "trades": 7842,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F4-small-k3-q0.9-follow-h120-stop2_target2-A",
+   "daily_t": 1.668802749924923,
+   "mean_net_bps": 1.2266285941347106,
+   "trades": 19098,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": true,
+    "d": false,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F3-k1-th1.0-h240-target1-A",
+   "daily_t": 1.6395208846534026,
+   "mean_net_bps": 6.184747014433069,
+   "trades": 8619,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F1-k3-th1.5-h120-time-A",
+   "daily_t": 1.529387203761997,
+   "mean_net_bps": 3.9419699966855,
+   "trades": 13256,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F5-th8-plain-h30-stop2_target2-A",
+   "daily_t": 1.5165116273911243,
+   "mean_net_bps": 3.2497947922855532,
+   "trades": 2099,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": true,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F3-k1-th1.0-h240-time-A",
+   "daily_t": 1.5154471478454223,
+   "mean_net_bps": 10.355976788505519,
+   "trades": 7466,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F4-small-k12-q0.8-follow-h120-target1-A",
+   "daily_t": 1.4487171507531913,
+   "mean_net_bps": 1.128779553773018,
+   "trades": 22178,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": false,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F4-binance-k12-q0.9-fade-h240-time-A",
+   "daily_t": 1.4253441369300246,
+   "mean_net_bps": 3.2330784764921616,
+   "trades": 8128,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F3-k1-th1.0-h240-time-AB",
+   "daily_t": 1.4033564145965256,
+   "mean_net_bps": 8.726647274997854,
+   "trades": 22757,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F5-th8-persist-h120-time-A",
+   "daily_t": 1.3554580689036835,
+   "mean_net_bps": 13.32557621521372,
+   "trades": 416,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": true,
+    "d": false,
+    "e": false,
+    "f": true
+   }
+  },
+  {
+   "id": "F3-k12-th2.0-h240-stop2_target2-A",
+   "daily_t": 1.308090005623913,
+   "mean_net_bps": 12.939374125696268,
+   "trades": 3065,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": true,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  },
+  {
+   "id": "F4-binance-k12-q0.9-fade-h120-stop2_target2-A",
+   "daily_t": 1.29324135405189,
+   "mean_net_bps": 1.908983913272024,
+   "trades": 13695,
+   "class": "slow",
+   "items": {
+    "a": true,
+    "b": false,
+    "c": false,
+    "d": true,
+    "e": true,
+    "f": true
+   }
+  }
+ ],
+ "tripwire": {
+  "notice": "SUSPECT configurations exist: audit for look-ahead before anything else.",
+  "rule": "mean net above 5 bps a trade or daily t above 8",
+  "suspect": [
+   {
+    "id": "F3-k1-th1.0-h240-time-A",
+    "daily_t": 1.5154471478454223,
+    "mean_net_bps": 10.355976788505519,
+    "trades": 7466,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k1-th1.0-h240-time-AB",
+    "daily_t": 1.4033564145965256,
+    "mean_net_bps": 8.726647274997854,
+    "trades": 22757,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k1-th1.0-h240-stop2_target2-A",
+    "daily_t": 1.6919291135657006,
+    "mean_net_bps": 9.35573290285627,
+    "trades": 7842,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k1-th1.0-h240-target1-A",
+    "daily_t": 1.6395208846534026,
+    "mean_net_bps": 6.184747014433069,
+    "trades": 8619,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k1-th2.0-h240-stop2_target2-A",
+    "daily_t": 0.9642003670181792,
+    "mean_net_bps": 5.918192214130829,
+    "trades": 5029,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k12-th2.0-h120-time-A",
+    "daily_t": 0.7778538257910328,
+    "mean_net_bps": 7.30453081745404,
+    "trades": 3582,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k12-th2.0-h120-time-AB",
+    "daily_t": 1.0734211305816865,
+    "mean_net_bps": 9.623862838164264,
+    "trades": 10793,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k12-th2.0-h120-stop2_target2-A",
+    "daily_t": 0.7750475530527228,
+    "mean_net_bps": 5.547457659992819,
+    "trades": 3999,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k12-th2.0-h240-time-A",
+    "daily_t": 0.6574867445009371,
+    "mean_net_bps": 8.095830516128311,
+    "trades": 2815,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k12-th2.0-h240-time-AB",
+    "daily_t": 0.5790048692420653,
+    "mean_net_bps": 6.9529818229994556,
+    "trades": 8498,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k12-th2.0-h240-stop2_target2-A",
+    "daily_t": 1.308090005623913,
+    "mean_net_bps": 12.939374125696268,
+    "trades": 3065,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": true,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k12-th2.0-h240-stop2_target2-AB",
+    "daily_t": 0.6656148943577846,
+    "mean_net_bps": 6.1920017702545955,
+    "trades": 9300,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F3-k12-th2.0-h240-target1-A",
+    "daily_t": 1.1861876348330698,
+    "mean_net_bps": 10.060265282188588,
+    "trades": 3497,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": true,
+     "d": true,
+     "e": true,
+     "f": true
+    }
+   },
+   {
+    "id": "F5-th4-persist-h120-time-A",
+    "daily_t": 1.0344181713006082,
+    "mean_net_bps": 6.163781227354898,
+    "trades": 1054,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": true
+    }
+   },
+   {
+    "id": "F5-th8-plain-h60-time-A",
+    "daily_t": 1.183985601363778,
+    "mean_net_bps": 7.181505767275659,
+    "trades": 1386,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": true,
+     "d": false,
+     "e": false,
+     "f": true
+    }
+   },
+   {
+    "id": "F5-th8-persist-h60-time-A",
+    "daily_t": 1.240322016887492,
+    "mean_net_bps": 9.188713342019321,
+    "trades": 583,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": false,
+     "d": false,
+     "e": false,
+     "f": true
+    }
+   },
+   {
+    "id": "F5-th8-persist-h120-time-A",
+    "daily_t": 1.3554580689036835,
+    "mean_net_bps": 13.32557621521372,
+    "trades": 416,
+    "class": "slow",
+    "items": {
+     "a": true,
+     "b": false,
+     "c": true,
+     "d": false,
+     "e": false,
+     "f": true
+    }
+   }
+  ],
+  "note": "All suspects have daily t of 1.69 or less and fail item (b), so none could be a finalist and no audit file was written."
+ },
+ "finalists": [],
+ "confirmation": {
+  "run": false,
+  "slice": "2026-07-01 to 2026-10-31",
+  "read": false,
+  "reason": "With zero finalists there is nothing to confirm. The slice stays unread."
+ },
+ "prediction": "Registered 2026-11-11 by the lead before any run: no finalist passes the confirmation slice. Most likely no configuration passes development item (b).",
+ "prediction_outcome": "Held: no configuration passes development item (b); the largest daily t is 1.69 against a threshold of 3.0.",
+ "caution": "Development statistics at normal spread are optimistic for event-driven configurations, and the noise bar is built from shifted decisions that are not at event times. Only finalists, which also pass the doubled-spread and cost-adjusted mirror conditions, carry meaning."
+}
