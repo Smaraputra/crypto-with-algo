@@ -143,8 +143,8 @@ class Store:
     def plan_problems(self, plan: dict) -> list[str]:
         """Plan jobs whose manifest line is absent, not ok, or records duplicates or bad rows (no file is opened).
 
-        A listed day that failed to download, or a file the downloader had to repair, stops the run: it is never an
-        exclusion (rule 2).
+        A listed kline day that failed to download, or a file the downloader had to repair, stops the run: it is never
+        an exclusion (rule 2). A funding month the archive does not have is a funding gap, not a stop (rule 7).
         """
         problems: list[str] = []
         for kind, jobs, field in (
@@ -157,6 +157,10 @@ class Store:
                 entry = self._manifest.get(key)
                 if entry is None:
                     problems.append(f"{label}: no manifest line")
+                elif kind == "funding" and entry.get("status") == "missing":
+                    # Rule 7: a funding month the archive does not have leaves its settlements missing. The pair is
+                    # flagged funding_gap and kept, so this is never a stop (a missing kline day is).
+                    continue
                 elif entry.get("status") != "ok":
                     problems.append(f"{label}: manifest status {entry.get('status')!r}")
                 elif entry.get("duplicates", 0) or entry.get("badRows", 0):

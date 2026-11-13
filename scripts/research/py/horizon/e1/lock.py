@@ -96,9 +96,10 @@ in the record and synthetic true on every manifest line, which the real download
    at least 360 bars with volume above zero (the perp traded, not only existed). (s5) The 1m bar at the entry minute
    exists with volume above zero (a print to fill against). A day that the record lists as present but is absent from
    the manifest, failed to download (manifest status missing) or was repaired by the downloader (duplicate or bad rows)
-   stops the run, it is never an exclusion, and missing bars inside a present file are handled by rule 3 only. Every
-   excluded pair is listed with its reason. No pair that passed (s1) to (s5) is excluded for anything observed after the
-   entry.
+   stops the run, it is never an exclusion. A funding month that the archive does not have (manifest status missing) is
+   the exception: its settlements are missing, so the pair is flagged funding_gap and kept (rule 7). Missing bars inside
+   a present file are handled by rule 3 only. Every excluded pair is listed with its reason. No pair that passed (s1) to
+   (s5) is excluded for anything observed after the entry.
 
 3. CLOCK, ENTRY, EXITS. Let s be the stamp in milliseconds. The first full minute that starts after the stamp starts at
    m0 = floor(s / 60,000) x 60,000 + 60,000, so a stamp exactly on a minute boundary falls before m0 as the preprint's

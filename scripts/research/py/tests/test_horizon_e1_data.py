@@ -592,7 +592,8 @@ def test_plan_problems(tmp_path: Path):
     dup = {"kind": "klines", "symbol": "CCCUSDT", "date": "2026-03-01", "status": "ok", "duplicates": 2, "badRows": 0}
     bad = {"kind": "funding", "symbol": "AAAUSDT", "date": "2026-03", "status": "ok", "duplicates": 0, "badRows": 1}
     fine = {"kind": "funding", "symbol": "BBBUSDT", "date": "2026-03", "status": "ok"}
-    write_manifest(tmp_path / "manifest.jsonl", [ok, missing, dup, bad, fine])
+    gap = {"kind": "funding", "symbol": "CCCUSDT", "date": "2026-03", "status": "missing"}
+    write_manifest(tmp_path / "manifest.jsonl", [ok, missing, dup, bad, fine, gap])
     store = data_mod.Store(tmp_path)
     plan = {
         "version": 1,
@@ -602,7 +603,11 @@ def test_plan_problems(tmp_path: Path):
             {"symbol": "CCCUSDT", "day": "2026-03-01"},
             {"symbol": "DDDUSDT", "day": "2026-03-01"},
         ],
-        "funding": [{"symbol": "AAAUSDT", "month": "2026-03"}, {"symbol": "BBBUSDT", "month": "2026-03"}],
+        "funding": [
+            {"symbol": "AAAUSDT", "month": "2026-03"},
+            {"symbol": "BBBUSDT", "month": "2026-03"},
+            {"symbol": "CCCUSDT", "month": "2026-03"},
+        ],
     }
     problems = store.plan_problems(plan)
     assert problems == [
@@ -611,4 +616,6 @@ def test_plan_problems(tmp_path: Path):
         "klines DDDUSDT 2026-03-01: no manifest line",
         "funding AAAUSDT 2026-03: manifest records 0 duplicates and 1 bad rows",
     ]
+    # A funding month the archive does not have is a funding gap (rule 7), never a stop
+    assert store.plan_problems({"version": 1, "klines": [], "funding": [plan["funding"][2]]}) == []
     assert store.plan_problems({"version": 1, "klines": [plan["klines"][0]], "funding": [plan["funding"][1]]}) == []
