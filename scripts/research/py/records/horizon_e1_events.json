@@ -1,0 +1,7066 @@
+{
+ "archive": {
+  "A2Z": {
+   "candidates": [
+    {
+     "first": "2025-07-30",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 471,
+     "symbol": "A2ZUSDT"
+    }
+   ]
+  },
+  "ACA": {
+   "candidates": []
+  },
+  "ACT": {
+   "candidates": [
+    {
+     "first": "2024-11-11",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 732,
+     "symbol": "ACTUSDT"
+    }
+   ]
+  },
+  "ACX": {
+   "candidates": [
+    {
+     "first": "2024-12-06",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 707,
+     "symbol": "ACXUSDT"
+    }
+   ]
+  },
+  "AERGO": {
+   "candidates": [
+    {
+     "first": "2024-09-10",
+     "last": "2026-07-23",
+     "missing_days": [],
+     "n_days": 682,
+     "symbol": "AERGOUSDT"
+    }
+   ]
+  },
+  "AEUR": {
+   "candidates": []
+  },
+  "AION": {
+   "candidates": []
+  },
+  "AKRO": {
+   "candidates": [
+    {
+     "first": "2021-01-19",
+     "last": "2022-05-27",
+     "missing_days": [],
+     "n_days": 494,
+     "symbol": "AKROUSDT"
+    }
+   ]
+  },
+  "ALCX": {
+   "candidates": []
+  },
+  "ALPACA": {
+   "candidates": [
+    {
+     "first": "2024-08-22",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 813,
+     "symbol": "ALPACAUSDT"
+    }
+   ]
+  },
+  "ALPHA": {
+   "candidates": [
+    {
+     "first": "2020-11-23",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2181,
+     "symbol": "ALPHAUSDT"
+    }
+   ]
+  },
+  "AMB": {
+   "candidates": [
+    {
+     "first": "2023-03-30",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1324,
+     "symbol": "AMBUSDT"
+    }
+   ]
+  },
+  "ANC": {
+   "candidates": [
+    {
+     "first": "2022-03-08",
+     "last": "2022-05-13",
+     "missing_days": [],
+     "n_days": 67,
+     "symbol": "ANCUSDT"
+    }
+   ]
+  },
+  "ANT": {
+   "candidates": [
+    {
+     "first": "2021-12-27",
+     "last": "2024-05-28",
+     "missing_days": [],
+     "n_days": 884,
+     "symbol": "ANTUSDT"
+    }
+   ]
+  },
+  "ARDR": {
+   "candidates": []
+  },
+  "ARK": {
+   "candidates": [
+    {
+     "first": "2023-09-19",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1151,
+     "symbol": "ARKUSDT"
+    }
+   ]
+  },
+  "AST": {
+   "candidates": []
+  },
+  "ATA": {
+   "candidates": [
+    {
+     "first": "2021-08-31",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1900,
+     "symbol": "ATAUSDT"
+    }
+   ]
+  },
+  "AUTO": {
+   "candidates": []
+  },
+  "AVA": {
+   "candidates": [
+    {
+     "first": "2024-12-13",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 700,
+     "symbol": "AVAUSDT"
+    }
+   ]
+  },
+  "BADGER": {
+   "candidates": [
+    {
+     "first": "2023-11-09",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1100,
+     "symbol": "BADGERUSDT"
+    }
+   ]
+  },
+  "BAKE": {
+   "candidates": [
+    {
+     "first": "2021-05-19",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2004,
+     "symbol": "BAKEUSDT"
+    }
+   ]
+  },
+  "BAL": {
+   "candidates": [
+    {
+     "first": "2020-09-01",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2264,
+     "symbol": "BALUSDT"
+    }
+   ]
+  },
+  "BCD": {
+   "candidates": []
+  },
+  "BEAM": {
+   "candidates": []
+  },
+  "BETA": {
+   "candidates": []
+  },
+  "BICO": {
+   "candidates": [
+    {
+     "first": "2023-09-28",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1142,
+     "symbol": "BICOUSDT"
+    }
+   ]
+  },
+  "BIFI": {
+   "candidates": []
+  },
+  "BLUR": {
+   "candidates": [
+    {
+     "first": "2023-04-28",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1295,
+     "symbol": "BLURUSDT"
+    }
+   ]
+  },
+  "BLZ": {
+   "candidates": [
+    {
+     "first": "2020-09-17",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2248,
+     "symbol": "BLZUSDT"
+    }
+   ]
+  },
+  "BOND": {
+   "candidates": [
+    {
+     "first": "2023-10-15",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1125,
+     "symbol": "BONDUSDT"
+    }
+   ]
+  },
+  "BRD": {
+   "candidates": []
+  },
+  "BSW": {
+   "candidates": [
+    {
+     "first": "2024-09-05",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 799,
+     "symbol": "BSWUSDT"
+    }
+   ]
+  },
+  "BTCST": {
+   "candidates": [
+    {
+     "first": "2021-03-04",
+     "last": "2026-07-29",
+     "missing_days": [],
+     "n_days": 1974,
+     "symbol": "BTCSTUSDT"
+    }
+   ]
+  },
+  "BTG": {
+   "candidates": []
+  },
+  "BTS": {
+   "candidates": [
+    {
+     "first": "2021-02-01",
+     "last": "2024-05-28",
+     "missing_days": [],
+     "n_days": 1213,
+     "symbol": "BTSUSDT"
+    }
+   ]
+  },
+  "BURGER": {
+   "candidates": []
+  },
+  "CHESS": {
+   "candidates": [
+    {
+     "first": "2024-08-29",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 806,
+     "symbol": "CHESSUSDT"
+    }
+   ]
+  },
+  "CLV": {
+   "candidates": []
+  },
+  "CND": {
+   "candidates": []
+  },
+  "COMBO": {
+   "candidates": [
+    {
+     "first": "2023-06-02",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1260,
+     "symbol": "COMBOUSDT"
+    }
+   ]
+  },
+  "COOKIE": {
+   "candidates": [
+    {
+     "first": "2025-01-07",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 675,
+     "symbol": "COOKIEUSDT"
+    }
+   ]
+  },
+  "COS": {
+   "candidates": [
+    {
+     "first": "2024-09-30",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 774,
+     "symbol": "COSUSDT"
+    }
+   ]
+  },
+  "CREAM": {
+   "candidates": []
+  },
+  "CTXC": {
+   "candidates": []
+  },
+  "CVC": {
+   "candidates": [
+    {
+     "first": "2020-11-11",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2193,
+     "symbol": "CVCUSDT"
+    }
+   ]
+  },
+  "CVP": {
+   "candidates": []
+  },
+  "CVX": {
+   "candidates": [
+    {
+     "first": "2022-09-22",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1513,
+     "symbol": "CVXUSDT"
+    }
+   ]
+  },
+  "D": {
+   "candidates": [
+    {
+     "first": "2025-01-09",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 673,
+     "symbol": "DUSDT"
+    }
+   ]
+  },
+  "DATA": {
+   "candidates": []
+  },
+  "DEGO": {
+   "candidates": [
+    {
+     "first": "2024-12-13",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 700,
+     "symbol": "DEGOUSDT"
+    }
+   ]
+  },
+  "DENT": {
+   "candidates": [
+    {
+     "first": "2021-03-24",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2060,
+     "symbol": "DENTUSDT"
+    }
+   ]
+  },
+  "DF": {
+   "candidates": [
+    {
+     "first": "2024-12-30",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 683,
+     "symbol": "DFUSDT"
+    }
+   ]
+  },
+  "DNT": {
+   "candidates": []
+  },
+  "DOCK": {
+   "candidates": []
+  },
+  "DODO": {
+   "candidates": [
+    {
+     "first": "2021-02-19",
+     "last": "2022-05-27",
+     "missing_days": [],
+     "n_days": 463,
+     "symbol": "DODOUSDT"
+    }
+   ]
+  },
+  "DREP": {
+   "candidates": []
+  },
+  "ELF": {
+   "candidates": []
+  },
+  "EPIC": {
+   "candidates": [
+    {
+     "first": "2025-03-13",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 610,
+     "symbol": "EPICUSDT"
+    }
+   ]
+  },
+  "EPX": {
+   "candidates": []
+  },
+  "EZ": {
+   "candidates": []
+  },
+  "FARM": {
+   "candidates": []
+  },
+  "FIO": {
+   "candidates": [
+    {
+     "first": "2024-09-20",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 784,
+     "symbol": "FIOUSDT"
+    }
+   ]
+  },
+  "FIRO": {
+   "candidates": []
+  },
+  "FIS": {
+   "candidates": [
+    {
+     "first": "2025-04-25",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 567,
+     "symbol": "FISUSDT"
+    }
+   ]
+  },
+  "FLM": {
+   "candidates": [
+    {
+     "first": "2020-09-29",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2236,
+     "symbol": "FLMUSDT"
+    }
+   ]
+  },
+  "FLOW": {
+   "candidates": [
+    {
+     "first": "2022-02-10",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1737,
+     "symbol": "FLOWUSDT"
+    }
+   ]
+  },
+  "FOR": {
+   "candidates": []
+  },
+  "FORTH": {
+   "candidates": [
+    {
+     "first": "2025-04-08",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 584,
+     "symbol": "FORTHUSDT"
+    }
+   ]
+  },
+  "FTT": {
+   "candidates": [
+    {
+     "first": "2022-04-15",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1673,
+     "symbol": "FTTUSDT"
+    }
+   ]
+  },
+  "FUN": {
+   "candidates": [
+    {
+     "first": "2025-03-31",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 592,
+     "symbol": "FUNUSDT"
+    }
+   ]
+  },
+  "GFT": {
+   "candidates": []
+  },
+  "GHST": {
+   "candidates": [
+    {
+     "first": "2024-09-23",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 781,
+     "symbol": "GHSTUSDT"
+    }
+   ]
+  },
+  "GLMR": {
+   "candidates": [
+    {
+     "first": "2023-09-26",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1144,
+     "symbol": "GLMRUSDT"
+    }
+   ]
+  },
+  "GNS": {
+   "candidates": []
+  },
+  "GO": {
+   "candidates": []
+  },
+  "GPS": {
+   "candidates": [
+    {
+     "first": "2025-02-17",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 634,
+     "symbol": "GPSUSDT"
+    }
+   ]
+  },
+  "GRS": {
+   "candidates": []
+  },
+  "GTC": {
+   "candidates": [
+    {
+     "first": "2021-06-11",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1981,
+     "symbol": "GTCUSDT"
+    }
+   ]
+  },
+  "HARD": {
+   "candidates": []
+  },
+  "HEGIC": {
+   "candidates": []
+  },
+  "HEI": {
+   "candidates": [
+    {
+     "first": "2025-02-13",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 638,
+     "symbol": "HEIUSDT"
+    }
+   ]
+  },
+  "HFT": {
+   "candidates": [
+    {
+     "first": "2023-04-06",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1317,
+     "symbol": "HFTUSDT"
+    }
+   ]
+  },
+  "HIFI": {
+   "candidates": [
+    {
+     "first": "2023-09-16",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1154,
+     "symbol": "HIFIUSDT"
+    }
+   ]
+  },
+  "HIGH": {
+   "candidates": [
+    {
+     "first": "2023-02-07",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1375,
+     "symbol": "HIGHUSDT"
+    }
+   ]
+  },
+  "HNT": {
+   "candidates": [
+    {
+     "first": "2020-09-28",
+     "last": "2024-05-28",
+     "missing_days": [],
+     "n_days": 1339,
+     "symbol": "HNTUSDT"
+    }
+   ]
+  },
+  "HOOK": {
+   "candidates": [
+    {
+     "first": "2023-01-23",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1390,
+     "symbol": "HOOKUSDT"
+    }
+   ]
+  },
+  "ICX": {
+   "candidates": [
+    {
+     "first": "2020-09-15",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2250,
+     "symbol": "ICXUSDT"
+    }
+   ]
+  },
+  "IDEX": {
+   "candidates": [
+    {
+     "first": "2023-05-03",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1290,
+     "symbol": "IDEXUSDT"
+    }
+   ]
+  },
+  "IDRT": {
+   "candidates": []
+  },
+  "IRIS": {
+   "candidates": []
+  },
+  "JASMY": {
+   "candidates": [
+    {
+     "first": "2022-04-20",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1668,
+     "symbol": "JASMYUSDT"
+    }
+   ]
+  },
+  "KDA": {
+   "candidates": [
+    {
+     "first": "2024-09-18",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 786,
+     "symbol": "KDAUSDT"
+    }
+   ]
+  },
+  "KEY": {
+   "candidates": [
+    {
+     "first": "2023-05-24",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1269,
+     "symbol": "KEYUSDT"
+    }
+   ]
+  },
+  "KMD": {
+   "candidates": []
+  },
+  "KP3R": {
+   "candidates": []
+  },
+  "LEVER": {
+   "candidates": [
+    {
+     "first": "2023-03-30",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1324,
+     "symbol": "LEVERUSDT"
+    }
+   ]
+  },
+  "LINA": {
+   "candidates": [
+    {
+     "first": "2021-03-19",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2065,
+     "symbol": "LINAUSDT"
+    }
+   ]
+  },
+  "LOOM": {
+   "candidates": [
+    {
+     "first": "2023-10-11",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1129,
+     "symbol": "LOOMUSDT"
+    }
+   ]
+  },
+  "LRC": {
+   "candidates": [
+    {
+     "first": "2020-10-19",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2216,
+     "symbol": "LRCUSDT"
+    }
+   ]
+  },
+  "LSK": {
+   "candidates": [
+    {
+     "first": "2024-01-25",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1023,
+     "symbol": "LSKUSDT"
+    }
+   ]
+  },
+  "LTO": {
+   "candidates": []
+  },
+  "MBL": {
+   "candidates": [
+    {
+     "first": "2023-11-14",
+     "last": "2024-05-28",
+     "missing_days": [],
+     "n_days": 197,
+     "symbol": "MBLUSDT"
+    }
+   ]
+  },
+  "MBOX": {
+   "candidates": [
+    {
+     "first": "2024-08-28",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 807,
+     "symbol": "MBOXUSDT"
+    }
+   ]
+  },
+  "MDA": {
+   "candidates": []
+  },
+  "MDT": {
+   "candidates": [
+    {
+     "first": "2023-06-30",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2026-10-13",
+      "2026-10-14",
+      "2026-10-15",
+      "2026-10-16",
+      "2026-10-17",
+      "2026-10-18",
+      "2026-10-19",
+      "2026-10-20"
+     ],
+     "n_days": 1224,
+     "symbol": "MDTUSDT"
+    }
+   ]
+  },
+  "MDX": {
+   "candidates": []
+  },
+  "MIR": {
+   "candidates": []
+  },
+  "MITH": {
+   "candidates": []
+  },
+  "MLN": {
+   "candidates": [
+    {
+     "first": "2025-03-31",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 592,
+     "symbol": "MLNUSDT"
+    }
+   ]
+  },
+  "MOB": {
+   "candidates": []
+  },
+  "MOVE": {
+   "candidates": [
+    {
+     "first": "2024-12-09",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2025-10-05"
+     ],
+     "n_days": 703,
+     "symbol": "MOVEUSDT"
+    }
+   ]
+  },
+  "MOVR": {
+   "candidates": [
+    {
+     "first": "2023-12-26",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1053,
+     "symbol": "MOVRUSDT"
+    }
+   ]
+  },
+  "MTH": {
+   "candidates": []
+  },
+  "MULTI": {
+   "candidates": []
+  },
+  "NAS": {
+   "candidates": []
+  },
+  "NAV": {
+   "candidates": []
+  },
+  "NBS": {
+   "candidates": []
+  },
+  "NCASH": {
+   "candidates": []
+  },
+  "NEBL": {
+   "candidates": []
+  },
+  "NFP": {
+   "candidates": [
+    {
+     "first": "2023-12-27",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1052,
+     "symbol": "NFPUSDT"
+    }
+   ]
+  },
+  "NKN": {
+   "candidates": [
+    {
+     "first": "2021-04-09",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2044,
+     "symbol": "NKNUSDT"
+    }
+   ]
+  },
+  "NOM": {
+   "candidates": [
+    {
+     "first": "2025-10-01",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2025-10-05"
+     ],
+     "n_days": 407,
+     "symbol": "NOMUSDT"
+    }
+   ]
+  },
+  "NTRN": {
+   "candidates": [
+    {
+     "first": "2023-11-14",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1095,
+     "symbol": "NTRNUSDT"
+    }
+   ]
+  },
+  "NULS": {
+   "candidates": [
+    {
+     "first": "2024-08-26",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 809,
+     "symbol": "NULSUSDT"
+    }
+   ]
+  },
+  "NXS": {
+   "candidates": []
+  },
+  "OAX": {
+   "candidates": []
+  },
+  "OMG": {
+   "candidates": [
+    {
+     "first": "2020-07-02",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2325,
+     "symbol": "OMGUSDT"
+    }
+   ]
+  },
+  "OOKI": {
+   "candidates": []
+  },
+  "OXT": {
+   "candidates": [
+    {
+     "first": "2023-08-11",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1190,
+     "symbol": "OXTUSDT"
+    }
+   ]
+  },
+  "PDA": {
+   "candidates": []
+  },
+  "PERL": {
+   "candidates": []
+  },
+  "PERP": {
+   "candidates": [
+    {
+     "first": "2023-03-06",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1348,
+     "symbol": "PERPUSDT"
+    }
+   ]
+  },
+  "PHB": {
+   "candidates": [
+    {
+     "first": "2023-02-16",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1366,
+     "symbol": "PHBUSDT"
+    }
+   ]
+  },
+  "PIVX": {
+   "candidates": []
+  },
+  "PNT": {
+   "candidates": []
+  },
+  "POLS": {
+   "candidates": []
+  },
+  "POND": {
+   "candidates": []
+  },
+  "PORTAL": {
+   "candidates": [
+    {
+     "first": "2024-02-29",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 988,
+     "symbol": "PORTALUSDT"
+    }
+   ]
+  },
+  "PROS": {
+   "candidates": []
+  },
+  "PYR": {
+   "candidates": []
+  },
+  "QI": {
+   "candidates": []
+  },
+  "QKC": {
+   "candidates": []
+  },
+  "QLC": {
+   "candidates": []
+  },
+  "QSP": {
+   "candidates": []
+  },
+  "QUICK": {
+   "candidates": [
+    {
+     "first": "2024-09-06",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 798,
+     "symbol": "QUICKUSDT"
+    }
+   ]
+  },
+  "RARE": {
+   "candidates": [
+    {
+     "first": "2024-08-15",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 820,
+     "symbol": "RAREUSDT"
+    }
+   ]
+  },
+  "RDNT": {
+   "candidates": [
+    {
+     "first": "2023-04-05",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1318,
+     "symbol": "RDNTUSDT"
+    }
+   ]
+  },
+  "REEF": {
+   "candidates": [
+    {
+     "first": "2021-02-22",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2090,
+     "symbol": "REEFUSDT"
+    }
+   ]
+  },
+  "REI": {
+   "candidates": [
+    {
+     "first": "2024-09-27",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 777,
+     "symbol": "REIUSDT"
+    }
+   ]
+  },
+  "REN": {
+   "candidates": [
+    {
+     "first": "2020-10-13",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2222,
+     "symbol": "RENUSDT"
+    }
+   ]
+  },
+  "RENBTC": {
+   "candidates": []
+  },
+  "REP": {
+   "candidates": []
+  },
+  "RESOLV": {
+   "candidates": [
+    {
+     "first": "2025-06-10",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 521,
+     "symbol": "RESOLVUSDT"
+    }
+   ]
+  },
+  "SCR": {
+   "candidates": [
+    {
+     "first": "2024-10-22",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 752,
+     "symbol": "SCRUSDT"
+    }
+   ]
+  },
+  "SCRT": {
+   "candidates": [
+    {
+     "first": "2024-11-21",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 722,
+     "symbol": "SCRTUSDT"
+    }
+   ]
+  },
+  "SLF": {
+   "candidates": []
+  },
+  "SNM": {
+   "candidates": []
+  },
+  "SNT": {
+   "candidates": [
+    {
+     "first": "2023-11-02",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1107,
+     "symbol": "SNTUSDT"
+    }
+   ]
+  },
+  "SOPH": {
+   "candidates": [
+    {
+     "first": "2025-05-28",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 534,
+     "symbol": "SOPHUSDT"
+    }
+   ]
+  },
+  "SPARTA": {
+   "candidates": []
+  },
+  "SRM": {
+   "candidates": [
+    {
+     "first": "2020-09-05",
+     "last": "2024-05-28",
+     "missing_days": [],
+     "n_days": 1362,
+     "symbol": "SRMUSDT"
+    }
+   ]
+  },
+  "STMX": {
+   "candidates": [
+    {
+     "first": "2021-03-22",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2023-11-07"
+     ],
+     "n_days": 2061,
+     "symbol": "STMXUSDT"
+    }
+   ]
+  },
+  "STORJ": {
+   "candidates": [
+    {
+     "first": "2020-09-16",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2249,
+     "symbol": "STORJUSDT"
+    }
+   ]
+  },
+  "STPT": {
+   "candidates": [
+    {
+     "first": "2023-10-18",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1122,
+     "symbol": "STPTUSDT"
+    }
+   ]
+  },
+  "STX": {
+   "candidates": [
+    {
+     "first": "2023-02-21",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1361,
+     "symbol": "STXUSDT"
+    }
+   ]
+  },
+  "SUN": {
+   "candidates": [
+    {
+     "first": "2024-08-22",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 813,
+     "symbol": "SUNUSDT"
+    }
+   ]
+  },
+  "SUSD": {
+   "candidates": []
+  },
+  "SXP": {
+   "candidates": [
+    {
+     "first": "2020-07-21",
+     "last": "2026-06-01",
+     "missing_days": [
+      "2025-10-05"
+     ],
+     "n_days": 2141,
+     "symbol": "SXPUSDT"
+    }
+   ]
+  },
+  "SYN": {
+   "candidates": [
+    {
+     "first": "2024-08-16",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 819,
+     "symbol": "SYNUSDT"
+    }
+   ]
+  },
+  "SYS": {
+   "candidates": [
+    {
+     "first": "2024-08-19",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 816,
+     "symbol": "SYSUSDT"
+    }
+   ]
+  },
+  "TCT": {
+   "candidates": []
+  },
+  "TLM": {
+   "candidates": [
+    {
+     "first": "2021-07-16",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1946,
+     "symbol": "TLMUSDT"
+    }
+   ]
+  },
+  "TORN": {
+   "candidates": []
+  },
+  "TOWNS": {
+   "candidates": [
+    {
+     "first": "2025-08-05",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 465,
+     "symbol": "TOWNSUSDT"
+    }
+   ]
+  },
+  "TRIBE": {
+   "candidates": []
+  },
+  "TROY": {
+   "candidates": [
+    {
+     "first": "2024-10-31",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 743,
+     "symbol": "TROYUSDT"
+    }
+   ]
+  },
+  "TRU": {
+   "candidates": [
+    {
+     "first": "2023-03-07",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1347,
+     "symbol": "TRUUSDT"
+    }
+   ]
+  },
+  "UFT": {
+   "candidates": []
+  },
+  "UNFI": {
+   "candidates": [
+    {
+     "first": "2021-02-19",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 2093,
+     "symbol": "UNFIUSDT"
+    }
+   ]
+  },
+  "USDP": {
+   "candidates": []
+  },
+  "VAI": {
+   "candidates": []
+  },
+  "VANRY": {
+   "candidates": [
+    {
+     "first": "2024-03-13",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 975,
+     "symbol": "VANRYUSDT"
+    }
+   ]
+  },
+  "VELODROME": {
+   "candidates": [
+    {
+     "first": "2024-12-13",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 700,
+     "symbol": "VELODROMEUSDT"
+    }
+   ]
+  },
+  "VGX": {
+   "candidates": []
+  },
+  "VIB": {
+   "candidates": []
+  },
+  "VIC": {
+   "candidates": [
+    {
+     "first": "2025-03-12",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 611,
+     "symbol": "VICUSDT"
+    }
+   ]
+  },
+  "VIDT": {
+   "candidates": [
+    {
+     "first": "2024-08-23",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 812,
+     "symbol": "VIDTUSDT"
+    }
+   ]
+  },
+  "VITE": {
+   "candidates": []
+  },
+  "VOXEL": {
+   "candidates": [
+    {
+     "first": "2024-08-20",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 815,
+     "symbol": "VOXELUSDT"
+    }
+   ]
+  },
+  "WABI": {
+   "candidates": []
+  },
+  "WAN": {
+   "candidates": []
+  },
+  "WAVES": {
+   "candidates": [
+    {
+     "first": "2020-08-12",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2020-11-30",
+      "2020-12-01"
+     ],
+     "n_days": 2282,
+     "symbol": "WAVESUSDT"
+    }
+   ]
+  },
+  "WIF": {
+   "candidates": [
+    {
+     "first": "2024-01-18",
+     "last": "2026-11-12",
+     "missing_days": [],
+     "n_days": 1030,
+     "symbol": "WIFUSDT"
+    }
+   ]
+  },
+  "WING": {
+   "candidates": []
+  },
+  "WNXM": {
+   "candidates": []
+  },
+  "WRX": {
+   "candidates": []
+  },
+  "WTC": {
+   "candidates": []
+  },
+  "XEM": {
+   "candidates": [
+    {
+     "first": "2021-03-03",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2025-10-05"
+     ],
+     "n_days": 2080,
+     "symbol": "XEMUSDT"
+    }
+   ]
+  },
+  "XMR": {
+   "candidates": [
+    {
+     "first": "2020-02-03",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2020-03-02",
+      "2020-03-03",
+      "2020-03-04",
+      "2020-03-05",
+      "2020-03-06",
+      "2020-11-30",
+      "2020-12-01",
+      "2020-12-02",
+      "2020-12-03",
+      "2020-12-04"
+     ],
+     "n_days": 2465,
+     "symbol": "XMRUSDT"
+    }
+   ]
+  },
+  "YFII": {
+   "candidates": [
+    {
+     "first": "2020-09-03",
+     "last": "2022-04-12",
+     "missing_days": [
+      "2020-12-01",
+      "2020-12-02",
+      "2020-12-03",
+      "2020-12-04"
+     ],
+     "n_days": 583,
+     "symbol": "YFIIUSDT"
+    }
+   ]
+  },
+  "YOYO": {
+   "candidates": []
+  },
+  "ZEC": {
+   "candidates": [
+    {
+     "first": "2020-02-05",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2020-12-02"
+     ],
+     "n_days": 2472,
+     "symbol": "ZECUSDT"
+    }
+   ]
+  },
+  "ZEN": {
+   "candidates": [
+    {
+     "first": "2020-11-24",
+     "last": "2026-11-12",
+     "missing_days": [
+      "2020-11-30",
+      "2020-12-01",
+      "2020-12-02",
+      "2020-12-03",
+      "2020-12-04"
+     ],
+     "n_days": 2175,
+     "symbol": "ZENUSDT"
+    }
+   ]
+  }
+ },
+ "audit": [
+  {
+   "code": "83b0ed10abd646328bf104d871d03d70",
+   "decision": "rejected",
+   "ms": 1641452071140,
+   "reason": "other-product",
+   "title": "Binance to Delist and Cease Redemption for Multiple Leveraged Tokens (2022-01-06)"
+  },
+  {
+   "code": "4aee48a0aced4fe3a49c71d876cc1725",
+   "decision": "rejected",
+   "ms": 1641460484877,
+   "reason": "update-or-postponement",
+   "title": "Updates on PPT & SWRV Delisting"
+  },
+  {
+   "code": "92eea3f48aa04210a454511151f3d362",
+   "decision": "delist",
+   "ms": 1646107170632,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist BCD, CND, MTH, NCASH and YOYO on 2022-03-08"
+  },
+  {
+   "code": "4baf8d70485c46e38637bd063c58c4d8",
+   "decision": "rejected",
+   "ms": 1649049710096,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist 1000BTTC and YFII USDT-Margined Contracts"
+  },
+  {
+   "code": "da14a6dce7a64283b8d536ca1c97c026",
+   "decision": "delist",
+   "ms": 1649066280853,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist HEGIC, RENBTC and SUSD on 2022-04-11"
+  },
+  {
+   "code": "81f425fef8774e0a82451fa480b95085",
+   "decision": "rejected",
+   "ms": 1649322306941,
+   "reason": "other-product",
+   "title": "Binance to Delist and Cease Redemption for XTZUP, XTZDOWN, LTCUP & LTCDOWN Leveraged Tokens (2022-04-07)"
+  },
+  {
+   "code": "7305d3e50f0647838078ded2be975d48",
+   "decision": "rejected",
+   "ms": 1652070302529,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist FTTBUSD USDT-Margined Contract"
+  },
+  {
+   "code": "1b73e64616ee4e769c29e70c66728d1a",
+   "decision": "rejected",
+   "ms": 1652331009976,
+   "reason": "futures-delist",
+   "title": "Binance Futures to Delist Coin-Margined LUNA Perpetual Contracts and Update the Leverage & Margin Tiers for USDT-Margined LUNA Perpetual Contracts"
+  },
+  {
+   "code": "30b94fa12397417ebb75567d525c2ecd",
+   "decision": "rejected",
+   "ms": 1652353160901,
+   "reason": "other-product",
+   "title": "Binance Margin to Delist LUNA on Cross Margin and Isolated Margin"
+  },
+  {
+   "code": "ef3ce76d5c2d45ee9b6dc3f281cde744",
+   "decision": "rejected",
+   "ms": 1652367541271,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist LUNA USDT-Margined Contract"
+  },
+  {
+   "code": "0bfb6cfd10aa4d26926260c0159ef58d",
+   "decision": "rejected",
+   "ms": 1652408842500,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USDT-Margined ANC Perpetual Contract"
+  },
+  {
+   "code": "70d41dea57454556b68d2a58c70c9cc5",
+   "decision": "rejected",
+   "ms": 1652424609208,
+   "reason": "other-product",
+   "title": "Binance Margin to Delist ANC and MIR on Cross Margin and Isolated Margin"
+  },
+  {
+   "code": "d1cb959677034c45b5149f1d998ae2b1",
+   "decision": "rejected",
+   "ms": 1652871565804,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist AKRO and DODO USDT-Margined Contracts"
+  },
+  {
+   "code": "185001cde1614f0e8987c4d39aca8639",
+   "decision": "rejected",
+   "ms": 1653555502627,
+   "reason": "update-or-postponement",
+   "title": "Delisting of AKRO USDT-Margined Contract Postponed"
+  },
+  {
+   "code": "af469aeeab074738bb4a276070a9d11b",
+   "decision": "rejected",
+   "ms": 1654165095432,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist TLM and ICP USDT-Margined Contracts"
+  },
+  {
+   "code": "6ce355dedc5d438abde7b5dc99b3a56d",
+   "decision": "rejected",
+   "ms": 1654855342935,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USDT-Margined SC Perpetual Contract"
+  },
+  {
+   "code": "0cc7c656b0704373bb4088fc531f89e0",
+   "decision": "rejected",
+   "ms": 1655953224692,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist CRV Coin-Margined Perpetual Contract"
+  },
+  {
+   "code": "d8f6cf77d58b4571a2c4c1ed77572256",
+   "decision": "delist",
+   "ms": 1656658181710,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist GRS, NAS and GO on 2022-07-08"
+  },
+  {
+   "code": "2c90ba6178524b9e9e19640df1fa2606",
+   "decision": "rejected",
+   "ms": 1657273103633,
+   "reason": "other-product",
+   "title": "Binance Staking to Delist EZ, TRU, VITE, ANC & MIR"
+  },
+  {
+   "code": "d5f079935fda4abfb4a5636f01984ec2",
+   "decision": "delist",
+   "ms": 1659591197638,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist EZ, QSP, BRD, NXS, NAV, MDA and SPARTA on 2022-08-11"
+  },
+  {
+   "code": "90498d8e2fec42468ec3d659bdfbb78b",
+   "decision": "rejected",
+   "ms": 1660013959306,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USDT-Margined BTS Perpetual Contract"
+  },
+  {
+   "code": "b312715afbff4d7493b77089967303b1",
+   "decision": "rejected",
+   "ms": 1660730127229,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USDT-Margined BLZ Perpetual Contract"
+  },
+  {
+   "code": "ebe08acbf4384a6fa7439e1014d6c566",
+   "decision": "rejected",
+   "ms": 1661397900450,
+   "reason": "update-or-postponement",
+   "title": "Delisting of USDT-Margined BLZ Perpetual Contract Postponed"
+  },
+  {
+   "code": "02b5d183f4944f18b3b0335f7b7348cc",
+   "decision": "rejected",
+   "ms": 1663229120786,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist TCT on Isolated Margin"
+  },
+  {
+   "code": "e573c08d695b4efbb0b114400c6cf38b",
+   "decision": "rejected",
+   "ms": 1663914603859,
+   "reason": "other-product",
+   "title": "Binance Adds GLM, NEBL & VIB on Cross Margin and Isolated Margin, Delisting DF from Isolated Margin"
+  },
+  {
+   "code": "cd7aae08f6a84ad89ca6a2c4d52fa32e",
+   "decision": "delist",
+   "ms": 1665633628184,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist DNT, NBS, BTG and TCT on 2022-10-24"
+  },
+  {
+   "code": "3b4c7c08479b48d48189191e37a7adca",
+   "decision": "rejected",
+   "ms": 1668332838510,
+   "reason": "other-product",
+   "title": "Binance Will Delist FTT Margin Pairs, USD\u24c8-M Futures Contracts and Binance Flexible Products"
+  },
+  {
+   "code": "9a6676662bd5417c92267953f3819dd0",
+   "decision": "rejected",
+   "ms": 1668409204880,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist RAYUSDT and SRMUSDT Perpetual Futures Contracts"
+  },
+  {
+   "code": "e0ff4c7020ca4203b49907505bc86809",
+   "decision": "rejected",
+   "ms": 1668650316774,
+   "reason": "other-product",
+   "title": "Binance Will Delist SRM and RAY Margin Pairs and Binance Earn Products"
+  },
+  {
+   "code": "b25c54dc95744d5db55e4437c55ce6b5",
+   "decision": "rejected",
+   "ms": 1668765625978,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist GTO, TRIBE & More Margin Pairs on Cross Margin & Isolated Margin"
+  },
+  {
+   "code": "8f74739047874206827f0fcbd1c3ae6b",
+   "decision": "rejected",
+   "ms": 1669101669372,
+   "reason": "other-product",
+   "title": "Binance Will Delist Multiple American-Style Daily Options"
+  },
+  {
+   "code": "3188e26f14a1464b91487abad452c04f",
+   "decision": "rejected",
+   "ms": 1669606227750,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of CVCUSDT Perpetual Futures Contract"
+  },
+  {
+   "code": "2220f382c1764f84834b1d74a26489a8",
+   "decision": "rejected",
+   "ms": 1669617922401,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist CVC & More Margin Pairs on Cross Margin & Isolated Margin"
+  },
+  {
+   "code": "84d48bb4678b4da6a7da419bcc99dfb8",
+   "decision": "rejected",
+   "ms": 1669779905243,
+   "reason": "other-product",
+   "title": "Binance Will Delist All American-Style Daily Options"
+  },
+  {
+   "code": "9ea990c25dcd474081c2259c85a59325",
+   "decision": "rejected",
+   "ms": 1670325826754,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist ACA and More Margin Pairs on Cross Margin & Isolated Margin"
+  },
+  {
+   "code": "f4f20b3b72324b3b82c543988f5b2328",
+   "decision": "rejected",
+   "ms": 1670497371715,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist BNX, TORN and More Margin Pairs on Cross Margin & Isolated Margin"
+  },
+  {
+   "code": "7dcc170b060c4c6a8ade4ded423f726a",
+   "decision": "rejected",
+   "ms": 1670912849285,
+   "reason": "other-product",
+   "title": "Notice on Updating Leverage & Margin Tiers, and Delisting USD\u24c8-M ANCBUSD and AUCTIONBUSD Perpetual Contracts"
+  },
+  {
+   "code": "35a4169422154c838f012331f5f4b425",
+   "decision": "delist",
+   "ms": 1671076804887,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist MITH, TRIBE, REP and BTCST on 2022-12-22"
+  },
+  {
+   "code": "9da748d1d20048beb0fd4e824da4c50e",
+   "decision": "rejected",
+   "ms": 1671085221101,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist CHESS, CVP and More Tokens as Borrowable Assets From Cross Margin"
+  },
+  {
+   "code": "fb10a5286033409fbba06a197a7a2ffc",
+   "decision": "rejected",
+   "ms": 1671710396824,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist FET, FORTH, KEY, MBOX, WIN as Borrowable Assets From Cross Margin and AION, BTS From Isolated Margin"
+  },
+  {
+   "code": "2a7d2f14142646959b101f4254d22340",
+   "decision": "rejected",
+   "ms": 1671768907038,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist COIN-M GALAUSD, ZILUSD and VETUSD Perpetual Contracts"
+  },
+  {
+   "code": "b271dde3a3ea459aadc5369f777d69d4",
+   "decision": "rejected",
+   "ms": 1672290931854,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist ATA, DEXE, HIGH, STPT & WAN as Borrowable Assets From Cross Margin"
+  },
+  {
+   "code": "4de1611d14ed44d2b9923b0540193f70",
+   "decision": "rejected",
+   "ms": 1672907126372,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist AGLD, DATA, ERN, FIO & TROY as Borrowable Assets From Cross Margin and KEY From Isolated Margin"
+  },
+  {
+   "code": "ed7dcc263e6e4f3687f8260340ec96ce",
+   "decision": "rejected",
+   "ms": 1673592309526,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist FLM, KMD as Borrowable Assets From Cross Margin and COCOS, CREAM, SCRT From Isolated Margin"
+  },
+  {
+   "code": "a80d47617f1046b883b5ba237d2c75a7",
+   "decision": "delist",
+   "ms": 1674100806617,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist BEAM on 2023-01-26"
+  },
+  {
+   "code": "181e7d0c59b1498f866a1e79b6c499f6",
+   "decision": "rejected",
+   "ms": 1674112226735,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist NEXO, POLS, QUICK as Borrowable Assets From Cross Margin and ALCX, NEXO, POLS, TOMO Trading Pairs From Isolated Margin"
+  },
+  {
+   "code": "40582b9b67564072a9a3d3cad4f70b00",
+   "decision": "rejected",
+   "ms": 1674799803614,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist JST, SNM, SUN as Borrowable Assets From Cross Margin"
+  },
+  {
+   "code": "fca7186611164299b4456073a9594e2a",
+   "decision": "rejected",
+   "ms": 1675749621021,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist FIO, GNO, IRIS, MLN, WTC Trading Pairs From Isolated Margin"
+  },
+  {
+   "code": "b461bf1f04d9456ea978f1549a31e174",
+   "decision": "delist",
+   "ms": 1676865785355,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist AION, MIR, ANC on 2023-02-27"
+  },
+  {
+   "code": "5a927cdc26a0401b8bb5f49c5b61f54d",
+   "decision": "rejected",
+   "ms": 1677063603612,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist LOOM, STRAX as Borrowable Assets From Cross Margin and OG From Isolated Margin"
+  },
+  {
+   "code": "edab50e09da64814970d9fb86a740617",
+   "decision": "rejected",
+   "ms": 1678688117686,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M CVXBUSD, GALBUSD and WAVESBUSD Perpetual Contracts"
+  },
+  {
+   "code": "f1a8aa29692b4442a8f18be2076e14a0",
+   "decision": "delist",
+   "ms": 1679036475726,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist HNT and WABI on 2023-03-24"
+  },
+  {
+   "code": "2f5fb73f1b6e411090318ca60a9f47bc",
+   "decision": "rejected",
+   "ms": 1679296806814,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M ICPBUSD and LUNA2BUSD Perpetual Contracts"
+  },
+  {
+   "code": "2bcaff7b39064aa8969bb509d28b90f5",
+   "decision": "rejected",
+   "ms": 1679900403355,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist NEBL as a Borrowable Asset From Cross Margin and DCR, NEBL, XVG From Isolated Margin"
+  },
+  {
+   "code": "7fd48887590649699ad65419023bacfb",
+   "decision": "rejected",
+   "ms": 1680253507407,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M AMBBUSD, LEVERBUSD and TLMBUSD Perpetual Contracts"
+  },
+  {
+   "code": "8c012ee71d4046699a0025e37c0e3c3d",
+   "decision": "rejected",
+   "ms": 1680597004561,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist SNM From Isolated Margin"
+  },
+  {
+   "code": "9453bc521ae34d2e8ea22e15c5635a29",
+   "decision": "rejected",
+   "ms": 1680776103366,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M PHBBUSD, SANDBUSD and UNIBUSD Perpetual Contracts"
+  },
+  {
+   "code": "27933fc8f6c8451fbb18c0189681441a",
+   "decision": "delist",
+   "ms": 1681196422114,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist QLC, NEBL and AUTO on 2023-04-18"
+  },
+  {
+   "code": "10d9ee3c69584398894526c5dba9e3a6",
+   "decision": "rejected",
+   "ms": 1681466509865,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M GMTBUSD, NEARBUSD and AVAXBUSD Perpetual Contracts"
+  },
+  {
+   "code": "084acdd39aae4b1b8660fc3b9ab7efef",
+   "decision": "rejected",
+   "ms": 1682071224769,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M ETCBUSD Perpetual Contract"
+  },
+  {
+   "code": "f9ed8900260141bbb2af4bb71741839a",
+   "decision": "rejected",
+   "ms": 1682577903228,
+   "reason": "other-product",
+   "title": "Binance to Delist and Cease Redemption for TRXUP, TRXDOWN, DOTUP, DOTDOWN, LINKUP & LINKDOWN Leveraged Tokens (2023-04-27)"
+  },
+  {
+   "code": "72ae35cffb8842d5acb8ff22c70f8dd3",
+   "decision": "rejected",
+   "ms": 1682678706662,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M FILBUSD Perpetual Contract"
+  },
+  {
+   "code": "4536c9819c5d498a975ae40fcd6ecac4",
+   "decision": "rejected",
+   "ms": 1683251412529,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M DOTBUSD Perpetual Contract"
+  },
+  {
+   "code": "e47dd8e9f2d84c3aa175bd09fe2f8c94",
+   "decision": "rejected",
+   "ms": 1683619303518,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the WRX/BTC Isolated Margin Pair"
+  },
+  {
+   "code": "575835ebb33346b28cf1dd78a8a50aaa",
+   "decision": "rejected",
+   "ms": 1683874532167,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M APEBUSD Perpetual Contract"
+  },
+  {
+   "code": "a8e3ce7e46ed46359336e1d48ab8c538",
+   "decision": "rejected",
+   "ms": 1684299631912,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the JASMY/BTC Cross Margin Pair and AMP/BTC, JASMY/BTC, STMX/BTC Isolated Margin Pairs"
+  },
+  {
+   "code": "e7d6bc2aa47c42a28d2e023a7ceb7234",
+   "decision": "rejected",
+   "ms": 1684470616021,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M LINKBUSD Perpetual Contract"
+  },
+  {
+   "code": "51ac7ced06274cd08710b38289e2ea43",
+   "decision": "rejected",
+   "ms": 1685007904026,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M 1000SHIBBUSD Perpetual Contract"
+  },
+  {
+   "code": "0e84e685101d457a95cbe5c550b6e891",
+   "decision": "rejected",
+   "ms": 1685610906427,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M 1000LUNCBUSD Perpetual Contract"
+  },
+  {
+   "code": "cd599a0f00004f399b03b8077788e39c",
+   "decision": "rejected",
+   "ms": 1686550803118,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the BNT/BUSD, CVX/BTC, POLS/BUSD, POWR/BUSD, STPT/BUSD & STRAX/BUSD Isolated Margin Pairs"
+  },
+  {
+   "code": "8915d06693ed49f78262c80b6d54c13a",
+   "decision": "rejected",
+   "ms": 1686815412709,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist MBL/BUSD, PUNDIX/BUSD Cross Margin Pairs and FARM/BUSD, LSK/BUSD, MBL/BUSD, PLA/BUSD, PUNDIX/BUSD, SC/BUSD Isolated Margin Pairs"
+  },
+  {
+   "code": "edebf68609a6495886c349fe7cbc355f",
+   "decision": "rejected",
+   "ms": 1686889511376,
+   "reason": "other-product",
+   "title": "Binance Flexible Loan Has Delisted PEPE as a Borrowable Asset"
+  },
+  {
+   "code": "1b4044db45834ae6b367e12ac776215c",
+   "decision": "rejected",
+   "ms": 1688703003727,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the ATA/BUSD, FORTH/BUSD, JST/BUSD, QTUM/BUSD, SUN/BUSD, ZEN/BUSD & ZRX/BUSD Isolated Margin Pairs"
+  },
+  {
+   "code": "e6764830f1aa468990b3263cd967c655",
+   "decision": "rejected",
+   "ms": 1689066007256,
+   "reason": "other-product",
+   "title": "Binance to Delist and Cease Redemption for XRPUP and XRPDOWN Leveraged Tokens (2023-07-25)"
+  },
+  {
+   "code": "3e64fa6aa26c40e0be51e0f8c3a1d9b1",
+   "decision": "rejected",
+   "ms": 1689072303374,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M AGIXBUSD Perpetual Contract"
+  },
+  {
+   "code": "64e983b9aebb48998e7ba789aabe3de2",
+   "decision": "rejected",
+   "ms": 1689318001849,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the ALCX/BUSD, ALPACA/BUSD, CVX/BUSD, DOCK/BUSD, LOOM/BUSD, MC/BUSD, MOB/BUSD & TROY/BUSD Isolated Margin Pairs"
+  },
+  {
+   "code": "37a510c756cc44ca8948a8a64fddd512",
+   "decision": "rejected",
+   "ms": 1689760808223,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the OGN/BUSD, OSMO/BUSD, REI/BUSD and SPELL/BUSD Cross Margin & Isolated Margin Pairs"
+  },
+  {
+   "code": "217d0ff70eac403480b5137e2a90b424",
+   "decision": "rejected",
+   "ms": 1689840007070,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M LDOBUSD and GALABUSD Perpetual Contracts"
+  },
+  {
+   "code": "632aa37b7ce44e4f89f0e917e885ffbf",
+   "decision": "rejected",
+   "ms": 1690252204237,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the CKB/BUSD, CTK/BUSD, ELF/BUSD, FOR/BUSD, PERP/BUSD, SKL/BUSD & UNFI/BUSD Isolated Margin Pairs"
+  },
+  {
+   "code": "b0f241491d0e4d75aa2f8752b7bf8af5",
+   "decision": "tag",
+   "ms": 1690340404342,
+   "reason": "tag-intro",
+   "title": "Introducing Seed Tags & Monitoring Tags for Tokens with High Volatility and Risks"
+  },
+  {
+   "code": "584d65bfa49f4f5894d2416e76214dc5",
+   "decision": "rejected",
+   "ms": 1690451103030,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M APTBUSD and FTMBUSD Perpetual Contracts"
+  },
+  {
+   "code": "63f3038beda94f3e9a05652f55c4fb75",
+   "decision": "rejected",
+   "ms": 1691055003469,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M TRXBUSD and DODOBUSD Perpetual Contracts"
+  },
+  {
+   "code": "8a8c41ad9eac4225b46b7d53d0df8f2c",
+   "decision": "rejected",
+   "ms": 1691464207277,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the ASTR/BUSD, AUDIO/BUSD, BAT/BUSD, BSW/BUSD, NMR/BUSD, PEOPLE/BUSD and RSR/BUSD Cross Margin & Isolated Margin Pairs"
+  },
+  {
+   "code": "63b70cab6d4f482f892f0fd7bda9e05e",
+   "decision": "rejected",
+   "ms": 1691658004905,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M ADABUSD and MATICBUSD Perpetual Contract"
+  },
+  {
+   "code": "f43511a4c1d347a8a2dd1efbdd2fe716",
+   "decision": "delist",
+   "ms": 1692082868922,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist SNM, SRM and YFII on 2023-08-22"
+  },
+  {
+   "code": "0a22f72cdfac479f95393e7b57e6dda1",
+   "decision": "rejected",
+   "ms": 1692155138357,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the EPX/BUSD, GAL/BUSD, GMX/BUSD, HIVE/BUSD, KLAY/BUSD, RAD/BUSD and TVK/BUSD Cross Margin & Isolated Margin Pairs"
+  },
+  {
+   "code": "f662330259c44f869ea1dd618925677e",
+   "decision": "rejected",
+   "ms": 1692266704608,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M LTCBUSD and DOGEBUSD Perpetual Contracts"
+  },
+  {
+   "code": "6723cf112ab943bb9db7542bf8e107f0",
+   "decision": "rejected",
+   "ms": 1692616803287,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M SOLBUSD Perpetual Contract"
+  },
+  {
+   "code": "d0f401e56c594069afad13c80f97a356",
+   "decision": "rejected",
+   "ms": 1693375203152,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist the AMB/BUSD, DASH/BUSD, FIDA/BUSD, HARD/BUSD, HOT/BUSD, IOST/BTC, NULS/BUSD, PORTO/BUSD and REQ/BUSD Cross Margin & Isolated Margin Pairs"
+  },
+  {
+   "code": "19c694ed39f14a9791e0f34a2235def1",
+   "decision": "rejected",
+   "ms": 1693552182147,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist ALPHA/BUSD, ANT/BUSD, BAL/BUSD, COS/BTC, DGB/BUSD, FIRO/BUSD, OOKI/BUSD, QI/BTC, RVN/BUSD & TWT/BUSD Isolated Margin Pairs"
+  },
+  {
+   "code": "1eb7ee7c825d480f98b85b56a13b4c29",
+   "decision": "tag",
+   "ms": 1696399216946,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include BETA, BOND, WTC and XEM on 2023-10-04"
+  },
+  {
+   "code": "6c95b3a188e140a39108251f72ecbf87",
+   "decision": "rejected",
+   "ms": 1697623240905,
+   "reason": "other-product",
+   "title": "Binance to Delist and Cease Redemption for ADAUP and ADADOWN Leveraged Tokens (2023-11-01)"
+  },
+  {
+   "code": "d980d81501594f80b2903cdfe29f1166",
+   "decision": "rejected",
+   "ms": 1700814330006,
+   "reason": "futures-delist",
+   "title": "Binance Margin & Binance Futures Will Delist BUSD"
+  },
+  {
+   "code": "d24dd4a035c443b1ad8cf49f60b9d194",
+   "decision": "delist",
+   "ms": 1701064826207,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist BTS, PERL, TORN, WTC on 2023-12-07"
+  },
+  {
+   "code": "9972ee7df32144d099c78c7df39011a2",
+   "decision": "rejected",
+   "ms": 1701666604715,
+   "reason": "other-product",
+   "title": "Notice on the Withdrawals of Delisted Tokens & Conversion of Selected Tokens to USDT"
+  },
+  {
+   "code": "fd710b5e647c480ab9fe2d87e3cd4b39",
+   "decision": "tag",
+   "ms": 1704351609013,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include ANT, FIRO, KP3R, MDX, MOB, REEF, VAI, XMR, ZEC & ZEN, and Remove the Seed Tag for GMX & SUSHI on 2024-01-04"
+  },
+  {
+   "code": "f73b083ba6834771b07dbe5319917ae5",
+   "decision": "delist",
+   "ms": 1707202812575,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist ANT, MULTI, VAI, XMR on 2024-02-20"
+  },
+  {
+   "code": "673183dd8eea4e3cba1596dcec7565d1",
+   "decision": "rejected",
+   "ms": 1710824702006,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M FOOTBALLUSDT and BLUEBIRDUSDT Perpetual Contracts"
+  },
+  {
+   "code": "1e531578a30c46eebf52c8dae3c56092",
+   "decision": "delist",
+   "ms": 1710914407471,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist DREP, MOB, PNT on 2024-04-03"
+  },
+  {
+   "code": "ce74360a3fd444b2b35da7186f8dd0ad",
+   "decision": "rejected",
+   "ms": 1711341612437,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M ANTUSDT, DGBUSDT and CTKUSDT Perpetual Contracts"
+  },
+  {
+   "code": "b1e997d92c90432fb28cf788f313f3dd",
+   "decision": "rejected",
+   "ms": 1711962468466,
+   "reason": "other-product",
+   "title": "Notice on the Withdrawals of Delisted Tokens & Conversion of Selected Tokens to USDT (2024-04-01)"
+  },
+  {
+   "code": "b869da2d645f41dab50227335703a741",
+   "decision": "tag",
+   "ms": 1712124016944,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include EPX, FOR, UNFI, WAVES & WNXM on 2024-04-03"
+  },
+  {
+   "code": "a58cc13f78a34fbba11f00ff7144e9ee",
+   "decision": "rejected",
+   "ms": 1714971617942,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M STPTUSDT, SNTUSDT, MBLUSDT, RADUSDT and CVXUSDT Perpetual Contracts"
+  },
+  {
+   "code": "cb525a5fbb954935afc77630fc5bd0cc",
+   "decision": "rejected",
+   "ms": 1715144426574,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M IDEXUSDT, SLPUSDT, GLMRUSDT, MDTUSDT and AUDIOUSDT Perpetual Contracts"
+  },
+  {
+   "code": "5150d4f0ee1546d7ae6382ba7cda3ffe",
+   "decision": "rejected",
+   "ms": 1715330951658,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of COIN-M KNCUSD, ICXUSD, XTZUSD, ROSEUSD and APEUSD Perpetual Contracts"
+  },
+  {
+   "code": "f65faeeefe07417a8b6dd2900ba8da7e",
+   "decision": "delist",
+   "ms": 1717383620294,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist OMG, WAVES, WNXM, XEM on 2024-06-17"
+  },
+  {
+   "code": "782b121c462b499487dc8f20e0edc6b2",
+   "decision": "tag",
+   "ms": 1719817203584,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include BAL, CTXC, CVP, CVX, DOCK, HARD, IRIS, MBL, POLS, SNT & SUN and Remove the Monitoring Tag for MLN & ZEN on 2024-07-01"
+  },
+  {
+   "code": "4ffb7170f2f84ce3a06cc0cf1a788c23",
+   "decision": "delist",
+   "ms": 1720422069631,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist BOND, DOCK, MDX, POLS on 2024-07-22"
+  },
+  {
+   "code": "44e121076fb045f69810a1da1e4c632f",
+   "decision": "rejected",
+   "ms": 1720663202463,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist TUSD from Cross and Isolated Margin - 2024-07-24"
+  },
+  {
+   "code": "9ec5cabbc8974a1c8890e1c9d87a98a7",
+   "decision": "rejected",
+   "ms": 1723442400000,
+   "reason": "other-product",
+   "title": "Notice on the Withdrawals of Delisted Tokens & Conversion of Selected Tokens to USDC (2024-08-12)"
+  },
+  {
+   "code": "e2fcd2c945654c8d832395335429403e",
+   "decision": "delist",
+   "ms": 1723446011329,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist CVP, EPX, FOR, LOOM, REEF, VGX on 2024-08-26"
+  },
+  {
+   "code": "2178333b0324406088737cf07436ba43",
+   "decision": "tag",
+   "ms": 1727938805269,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include BLZ, CLV, KEY, PROS & VITE and Remove the Seed Tag for PENDLE & SEI on 2024-10-03"
+  },
+  {
+   "code": "1657c0d30d5449908e8e20d9efa893a2",
+   "decision": "rejected",
+   "ms": 1728360012037,
+   "reason": "other-product",
+   "title": "Notice on the Withdrawals of Delisted Tokens & Conversion of Selected Tokens to USDC (2024-10-08)"
+  },
+  {
+   "code": "043c8407bb904652a428573a50d07e07",
+   "decision": "delist",
+   "ms": 1729666837062,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist IDRT, KP3R, OOKI, UNFI on 2024-11-06"
+  },
+  {
+   "code": "131b75b63a71490393034f36de70c92c",
+   "decision": "delist",
+   "ms": 1732609814278,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist GFT, IRIS, KEY, OAX, REN on 2024-12-10"
+  },
+  {
+   "code": "cfe97d52a8c840d3ba631835b637e9e7",
+   "decision": "rejected",
+   "ms": 1732852801809,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M XEMUSDT, ORBSUSDT and LOOMUSDT Perpetual Contracts (2024-12-09)"
+  },
+  {
+   "code": "7ce833294cdf4eff97dd4d1cc01845f3",
+   "decision": "rejected",
+   "ms": 1732889433223,
+   "reason": "update-or-postponement",
+   "title": "Suspension of Gifto (GFT) Deposits and Update on the Delisting Date (2024-12-03)"
+  },
+  {
+   "code": "27eac260521b4f40ab331e1a345887a7",
+   "decision": "rejected",
+   "ms": 1733454004185,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M MAVIAUSDT, OMGUSDT, and BONDUSDT Perpetual Contracts (2024-12-16)"
+  },
+  {
+   "code": "eedac7aff5b849d58efda6c4b3cec01b",
+   "decision": "rejected",
+   "ms": 1734184414273,
+   "reason": "update-or-postponement",
+   "title": "Delisting of USD\u24c8-M OMGUSDT Perpetual Contract Postponed"
+  },
+  {
+   "code": "b140faee7cf9482cb10257308abda245",
+   "decision": "delist",
+   "ms": 1734508872939,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist AKRO, BLZ, WRX on 2024-12-25"
+  },
+  {
+   "code": "1e43c128806544018d3cc537a8add3f6",
+   "decision": "rejected",
+   "ms": 1734678000929,
+   "reason": "update-or-postponement",
+   "title": "Delisting of USD\u24c8-M OMGUSDT Perpetual Contract Will Be Further Postponed"
+  },
+  {
+   "code": "00ae3dd0e47746f0a118c9ea3172dde3",
+   "decision": "tag",
+   "ms": 1735808419305,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include STMX & TROY, Remove the Monitoring Tag for CVX & SUN, and Remove the Seed Tag for ARKM, BLUR, JTO & TIA on 2025-01-02"
+  },
+  {
+   "code": "5b215fbc6a0a46afaf0d7e331d2583fa",
+   "decision": "rejected",
+   "ms": 1735880404764,
+   "reason": "other-product",
+   "title": "Notice on Delisting of Binance Loans (Flexible Rate) Loanable Assets - 2025-01-03"
+  },
+  {
+   "code": "0121f22d485c43da89f2686c5c703886",
+   "decision": "rejected",
+   "ms": 1736841604362,
+   "reason": "other-product",
+   "title": "Notice on Delisting of Binance Loans (Flexible Rate) Loanable Assets - 2025-01-15"
+  },
+  {
+   "code": "572715f2d96e47769ebbb967c2a6e445",
+   "decision": "rejected",
+   "ms": 1736928006723,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M REEFUSDT Perpetual Contract (2025-01-22)"
+  },
+  {
+   "code": "f3cc64a8758d4bb394e0830e5b31da97",
+   "decision": "delist",
+   "ms": 1739775624287,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist AMB, CLV, STMX, VITE on 2025-02-24"
+  },
+  {
+   "code": "bcaa1f68d6a6450099056ff694ad6c46",
+   "decision": "rejected",
+   "ms": 1740992403856,
+   "reason": "other-product",
+   "title": "Binance Will Delist Non-MiCA Compliant Stablecoin Trading Pairs For EEA Users on 2025-03-31"
+  },
+  {
+   "code": "d0a0b3c398264e9eb460f0e64324453c",
+   "decision": "tag",
+   "ms": 1741075282062,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Change the Monitoring Tag Inclusion Frequency to Monthly and Extend the Monitoring Tag to Include AERGO, ALPACA, AST, BADGER, BURGER, COMBO, NULS, STPT, UFT & VIDT on 2025-03-04"
+  },
+  {
+   "code": "79167fa2f976432eaab191563887ffd1",
+   "decision": "tag",
+   "ms": 1741338045829,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to GPS on 2025-03-07"
+  },
+  {
+   "code": "db7ad1c7aa6248cda735102cdcdc4b8d",
+   "decision": "delist",
+   "ms": 1742536220352,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist AERGO, AST, BURGER, COMBO, LINA on 2025-03-28"
+  },
+  {
+   "code": "ed7591c973014ed487b339066292a5ee",
+   "decision": "rejected",
+   "ms": 1742536809937,
+   "reason": "vote-announcement",
+   "title": "Binance Will Start the First Batch of Vote to Delist on 2025-03-21"
+  },
+  {
+   "code": "5efec0c8ac784f74beb742b88fba8f02",
+   "decision": "tag",
+   "ms": 1743663636245,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include ARDR, BSW, FLM, LTO, NKN, PDA, PERP, VIB, VOXEL & WING, and Remove the Seed Tag for JUP, STRK & TON on 2025-04-03"
+  },
+  {
+   "code": "fac9c3e401da4cc8b604566fd261d70c",
+   "decision": "delist",
+   "ms": 1744092007355,
+   "reason": "spot-delist",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "code": "562332a340474eda890417685ebbb26b",
+   "decision": "rejected",
+   "ms": 1744255873621,
+   "reason": "vote-announcement",
+   "title": "Binance Introduces the 2nd Batch of Vote to Delist on 2025-04-10"
+  },
+  {
+   "code": "0274f9d47da1437990bc13eb17b0ec99",
+   "decision": "delist",
+   "ms": 1745467205257,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist ALPACA, PDA, VIB, WING on 2025-05-02"
+  },
+  {
+   "code": "514e8ba0fef0462b97a8ce1506dc474d",
+   "decision": "tag",
+   "ms": 1746604833736,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include ALPHA, HIFI, LEVER, MOVE, PORTAL & REI on 2025-05-07"
+  },
+  {
+   "code": "74103b430fbe40438e59a5c0e1b5b201",
+   "decision": "tag",
+   "ms": 1749099618433,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include BIFI, FIS, KMD & MDT on 2025-06-05"
+  },
+  {
+   "code": "173b2a63c03141009029407ecfebd14a",
+   "decision": "delist",
+   "ms": 1750921209887,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist ALPHA, BSW, KMD, LEVER, LTO on 2025-07-04"
+  },
+  {
+   "code": "d542f33541414ba5b1289b8812d452de",
+   "decision": "tag",
+   "ms": 1751858997414,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include BAKE, IDEX & SLF on 2025-07-07"
+  },
+  {
+   "code": "c2536e8b6ed44c7ba4f62c249dbde9bb",
+   "decision": "rejected",
+   "ms": 1752026396407,
+   "reason": "tag-removal-only",
+   "title": "Binance Will Remove the Monitoring Tag for ZEC and the Seed Tag for ENA, PYTH, TAO & W on 2025-07-09"
+  },
+  {
+   "code": "21e399dcea734230a3c181daf5407b64",
+   "decision": "rejected",
+   "ms": 1754465406291,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M DEFIUSDT and MEMEFI Perpetual Contracts (2025-08-11)"
+  },
+  {
+   "code": "d5fc5fdda5c74e3e8780050ed0841267",
+   "decision": "rejected",
+   "ms": 1756465212480,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M LEVERUSDT Perpetual Contract (2025-09-03)"
+  },
+  {
+   "code": "b601f1d986ad403b8c667dd0ca17e2e7",
+   "decision": "delist",
+   "ms": 1756868394550,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist BAKE, HIFI, SLF on 2025-09-17"
+  },
+  {
+   "code": "c95b56efd290471ba11c6cb850208d07",
+   "decision": "rejected",
+   "ms": 1757499283992,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M BSWUSDT Perpetual Contract (2025-09-15)"
+  },
+  {
+   "code": "10fd115c29244067bd4566a70f77e327",
+   "decision": "rejected",
+   "ms": 1758098727976,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M ALPHAUSDT Perpetual Contract (2025-09-23)"
+  },
+  {
+   "code": "77d088eda9b040dc9f73bb7e57ae8e26",
+   "decision": "rejected",
+   "ms": 1758526202610,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M NEIROETHUSDT Perpetual Contract (2025-09-26)"
+  },
+  {
+   "code": "5a4fddd83a25401cabc2ae6271b532a2",
+   "decision": "rejected",
+   "ms": 1758715205980,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M UXLINKUSDT Perpetual Contract (2025-09-26)"
+  },
+  {
+   "code": "82df1b55a0d84c288fa396d5a5cead48",
+   "decision": "rejected",
+   "ms": 1759146319511,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M HIFIUSDT and BAKEUSDT Perpetual Contracts (2025-10-03)"
+  },
+  {
+   "code": "13bbf79fa3da4919a6388fe86125c533",
+   "decision": "tag",
+   "ms": 1759976992334,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include WAN, Remove the Monitoring Tag for GPS & MBL, and Remove the Seed Tag for BERA, BIO, ZK & ZRO on 2025-10-09"
+  },
+  {
+   "code": "c045753243994cfcba6a22563389e910",
+   "decision": "rejected",
+   "ms": 1760759930952,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M SLERFUSDT and COIN-M CHZUSD Perpetual Contracts (2025-10-20 & 2025-10-21)"
+  },
+  {
+   "code": "fe8c53fbe54540b88cff9caa193ffd60",
+   "decision": "rejected",
+   "ms": 1761219095905,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist COIN-M GMTUSD and DOGSUSD Perpetual Contracts (2025-10-28)"
+  },
+  {
+   "code": "a6c810fc36424548917e146dbe21469a",
+   "decision": "delist",
+   "ms": 1761706804123,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist FLM, KDA, PERP on 2025-11-12"
+  },
+  {
+   "code": "ebe57975b8c34e928c7d3fdacfcef32a",
+   "decision": "rejected",
+   "ms": 1762137028085,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts"
+  },
+  {
+   "code": "f73071bd329f4a31ba0218ac675bea67",
+   "decision": "rejected",
+   "ms": 1762507832708,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist COIN-M MANAUSD and EGLDUSD Perpetual Contracts (2025-11-13)"
+  },
+  {
+   "code": "869c1c15564048e29ae6139578637cd4",
+   "decision": "rejected",
+   "ms": 1762782300002,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M MYROUSDT and 1000XUSDT Perpetual Contracts (2025-11-14)"
+  },
+  {
+   "code": "4e11bae0efbb4811842ff1b2d37d1389",
+   "decision": "rejected",
+   "ms": 1763105419907,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist COIN-M RUNEUSD Perpetual Contract (2025-11-19)"
+  },
+  {
+   "code": "6392491d998b4cbaa6d4beee0fd898c6",
+   "decision": "rejected",
+   "ms": 1763438473736,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2025-11-21)"
+  },
+  {
+   "code": "aa3cc74779bf456e8b100304905b9cc2",
+   "decision": "rejected",
+   "ms": 1763877454108,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M PORT3USDT Perpetual Contract (2025-11-23)"
+  },
+  {
+   "code": "53998d26b57f47beb97811ec9f5e582b",
+   "decision": "rejected",
+   "ms": 1763991911669,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2025-11-28)"
+  },
+  {
+   "code": "aec9353b427f4b1ab42415e770e2eb5a",
+   "decision": "tag",
+   "ms": 1764563424832,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include CHESS, DENT, DF, GHST & SXP on 2025-12-01"
+  },
+  {
+   "code": "746056ce732d43dda12c1e5ae1b7a059",
+   "decision": "rejected",
+   "ms": 1764576863757,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2025-12-05)"
+  },
+  {
+   "code": "f958d031b39f46b1ab3947b1d53fa736",
+   "decision": "delist",
+   "ms": 1764743396380,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist FIS, REI, VOXEL on 2025-12-17"
+  },
+  {
+   "code": "7621c0ff8a924305b6e8fe78ce2c7fcd",
+   "decision": "rejected",
+   "ms": 1764930770574,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2025-12-10)"
+  },
+  {
+   "code": "20eee4109e06448992f0557bf798bb36",
+   "decision": "rejected",
+   "ms": 1765453426582,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist AIAUSDT USD\u24c8-M Perpetual Contract (2025-12-11)"
+  },
+  {
+   "code": "b15c2beb81b94e7a846f905b267ce546",
+   "decision": "tag",
+   "ms": 1767351597739,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include ACA, D, DATA & FLOW on 2026-01-02"
+  },
+  {
+   "code": "5798be852fb5449bb438dde4166126dc",
+   "decision": "rejected",
+   "ms": 1768636591216,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2026-01-21)"
+  },
+  {
+   "code": "79211335d1de4f7589ad2d8780580970",
+   "decision": "rejected",
+   "ms": 1769595249706,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2026-01-30)"
+  },
+  {
+   "code": "87a9bdf137f348668a85575ee02b8a27",
+   "decision": "delist",
+   "ms": 1770022792762,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist ACA, CHESS, DATA, DF, GHST, NKN on 2026-02-13"
+  },
+  {
+   "code": "9ac36fb4f2ad4bf2b3b27f9c9224739c",
+   "decision": "rejected",
+   "ms": 1770275659503,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M RVVUSDT and YALAUSDT Perpetual Contracts (2026-02-10)"
+  },
+  {
+   "code": "e56e5e6b33ad493c98a71189643ade4f",
+   "decision": "tag",
+   "ms": 1772785796086,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include COS, DEGO, FORTH, FUN, HOOK, LRC, MBOX, OXT & WIF, Remove the Monitoring Tag for FLOW, and Remove the Seed Tag for ONDO & VIRTUAL on 2026-03-06"
+  },
+  {
+   "code": "37a8026d1bbb4385916513623135ee2b",
+   "decision": "rejected",
+   "ms": 1773118801491,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist ARDR on 2026-03-12"
+  },
+  {
+   "code": "6643b898afa54f3a9d96a53f432e068d",
+   "decision": "rejected",
+   "ms": 1773367204369,
+   "reason": "other-product",
+   "title": "Binance VIP Loan Will Delist TUSD and ALCX from Eligible Collateral Asset List - 2026-03-30"
+  },
+  {
+   "code": "2448b786202948bea67d4cd66f66d208",
+   "decision": "tag",
+   "ms": 1773392423060,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include ATA, A2Z, FIO, GTC, NTRN, PHB, QI & RDNT on 2026-03-13"
+  },
+  {
+   "code": "f6ebc17e4dbd451b873d9ef25c801237",
+   "decision": "rejected",
+   "ms": 1773411259653,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M and COIN-M Perpetual Contracts (2026-03-17 & 2026-03-18)"
+  },
+  {
+   "code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "decision": "delist",
+   "ms": 1773824408667,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "code": "48f99309fd5442d7b44491c76483223e",
+   "decision": "rejected",
+   "ms": 1774016064610,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist COIN-M APTUSD and OPUSD Perpetual Contracts (2026-03-25)"
+  },
+  {
+   "code": "cb0ce24d50ac4db782f7484dbc6377b5",
+   "decision": "rejected",
+   "ms": 1774494003206,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist UTK on 2026-03-30"
+  },
+  {
+   "code": "97b4f3a7d02a486c8d412ada2281b907",
+   "decision": "rejected",
+   "ms": 1775224771078,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2026-04-08 & 2026-04-09)"
+  },
+  {
+   "code": "f263d2f8ac7e488ead84b181b12bb69d",
+   "decision": "rejected",
+   "ms": 1775552407906,
+   "reason": "other-product",
+   "title": "Binance Margin Will Delist WAN on 2026-04-10"
+  },
+  {
+   "code": "d26a627649ee44fca27e07672add9ac2",
+   "decision": "delist",
+   "ms": 1775714405744,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist BIFI, FIO, FUN, MDT, OXT, WAN on 2026-04-23"
+  },
+  {
+   "code": "895c114d247a41159cc7e4c913f42c36",
+   "decision": "rejected",
+   "ms": 1776132001137,
+   "reason": "update-or-postponement",
+   "title": "Binance Will Delist UTK and Support Rebranding and Airdrop Plan on Binance Alpha"
+  },
+  {
+   "code": "f2286b6232434b31927ccd3e7187afd3",
+   "decision": "tag",
+   "ms": 1776133806111,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include FARM, HIGH, MLN, RESOLV, SYS, TRU & VELODROME, Remove the Seed Tag for XAUT on 2026-04-14"
+  },
+  {
+   "code": "bb7238d13db14c9ebce9fa8704e3098f",
+   "decision": "rejected",
+   "ms": 1776137401903,
+   "reason": "other-product",
+   "title": "Binance Margin And Loan Will Delist BAR, PIVX, XVG on 2026-04-17"
+  },
+  {
+   "code": "d067b373496c44a4ab8d28f3e90b66ad",
+   "decision": "delist",
+   "ms": 1776416406263,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist DEGO, DENT, TRU on 2026-04-28"
+  },
+  {
+   "code": "1d2b6970facd470dbba6a674e1595bd4",
+   "decision": "rejected",
+   "ms": 1776956437768,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M Multiple Perpetual Contracts (2026-04-28 & 2026-04-29)"
+  },
+  {
+   "code": "ba5d61807b474b0ca9f40250e7fa782c",
+   "decision": "rejected",
+   "ms": 1777029313345,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M Multiple Perpetual Contracts (2026-04-28)"
+  },
+  {
+   "code": "629b1970537e45b8801427d3de49a25b",
+   "decision": "tag",
+   "ms": 1777532405981,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include NFP, NOM, POND, QUICK & VIC on 2026-04-30"
+  },
+  {
+   "code": "a42f51022cb649aea0b4cb808205fd76",
+   "decision": "delist",
+   "ms": 1778659204681,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist ATA, FARM, MLN, PHB, SYS on 2026-05-27"
+  },
+  {
+   "code": "6492bd3434204b29a1709e64f72e2ee6",
+   "decision": "rejected",
+   "ms": 1779159608915,
+   "reason": "other-product",
+   "title": "Binance Margin And Binance Loans Will Delist AEUR and AI on 2026-05-22"
+  },
+  {
+   "code": "ca0f3a3ff83243b79102b4561c8ccdc2",
+   "decision": "tag",
+   "ms": 1779436804004,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include ALCX, COOKIE, DODO, EPIC, HEI, HFT, STORJ, SYN & TLM on 2026-05-22"
+  },
+  {
+   "code": "24aced8c698649d9a552a47eeead5e34",
+   "decision": "delist",
+   "ms": 1780642807472,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist COS, D, HIGH, MBOX on 2026-06-19"
+  },
+  {
+   "code": "d5d69ae4b2f0497aa45d06da33796f9d",
+   "decision": "rejected",
+   "ms": 1780912804311,
+   "reason": "other-product",
+   "title": "Binance Margin And Loan Will Delist XNO, IQ, QUICK, DGB on 2026-06-12"
+  },
+  {
+   "code": "2ce2c4973d85405a9bb5fffc475c99dc",
+   "decision": "tag",
+   "ms": 1781766018693,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include ACT, BLUR, PIVX & QKC on 2026-06-18"
+  },
+  {
+   "code": "5702f93568604ea7bfd2f4233f054bd1",
+   "decision": "rejected",
+   "ms": 1782406806669,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-Margined IPUSDT and IPUSDC Perpetual Contracts (2026-06-28)"
+  },
+  {
+   "code": "a9c1a7bb97064c69a660316bff39f2bd",
+   "decision": "delist",
+   "ms": 1782464415053,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist ALCX, ARDR, NFP, POND on 2026-07-10"
+  },
+  {
+   "code": "b703403f123b4d95af7222431d053c7c",
+   "decision": "rejected",
+   "ms": 1782716408506,
+   "reason": "other-product",
+   "title": "Binance Margin And Loan Will Delist HOT, THE on 2026-07-03"
+  },
+  {
+   "code": "999c897add924d01a8b10c26b316690c",
+   "decision": "tag",
+   "ms": 1783058411367,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include AEUR, PYR, SCRT & VANRY on 2026-07-03"
+  },
+  {
+   "code": "2733031786ea4b2688696cf578ac339f",
+   "decision": "rejected",
+   "ms": 1783332001595,
+   "reason": "other-product",
+   "title": "Binance Margin And Loan Will Delist TST & IOTX on 2026-07-10"
+  },
+  {
+   "code": "f0e3fc835b9545759e4279c64b200389",
+   "decision": "rejected",
+   "ms": 1784643314244,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist USD\u24c8-M AERGOUSDT Perpetual Contract (2026-07-24)"
+  },
+  {
+   "code": "12056a79b7f545a3aa03fa5031f77b16",
+   "decision": "tag",
+   "ms": 1784862006343,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include ACX, LSK & STX on 2026-07-24"
+  },
+  {
+   "code": "5a8ae66176794fe79cd0f250b3ec05e5",
+   "decision": "rejected",
+   "ms": 1785139203511,
+   "reason": "other-product",
+   "title": "Binance Capital Connect \u2014 Delisting & Access Criteria"
+  },
+  {
+   "code": "64cf7544b98e4f2ca7f54ba11fd72d9d",
+   "decision": "delist",
+   "ms": 1785727810683,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist ACX, HFT, PIVX, PYR, VANRY, VIC on 2026-08-17"
+  },
+  {
+   "code": "948546d989254418a4646db8a6da18c5",
+   "decision": "rejected",
+   "ms": 1786356004147,
+   "reason": "other-product",
+   "title": "Binance Margin And Loan Will Delist BTTC & POWR on 2026-08-14"
+  },
+  {
+   "code": "1ec3ae2e21274a92858aa8cf58ae6c3a",
+   "decision": "tag",
+   "ms": 1786438812289,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include GLMR, ICX, MOVR, RARE & SOPH on 2026-08-11"
+  },
+  {
+   "code": "d72915ed7a60473b92f0818d959a227a",
+   "decision": "delist",
+   "ms": 1787205606608,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist ICX, SCRT, STORJ on 2026-09-03"
+  },
+  {
+   "code": "59c847eea19149369c3bf4b01edfa6df",
+   "decision": "tag",
+   "ms": 1788508806500,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include AVA, GNS, SCR & TOWNS on 2026-09-04"
+  },
+  {
+   "code": "8e6fd91b79a34bddbd7643ef002db47e",
+   "decision": "delist",
+   "ms": 1789020012727,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist USDP on 2026-09-24"
+  },
+  {
+   "code": "7d17add1ffe6416391f65a001734e1c7",
+   "decision": "rejected",
+   "ms": 1790146800000,
+   "reason": "other-product",
+   "title": "Binance Will Close UAH Deposits and Withdrawals via Fiat Trade UAH and Delist USDT/UAH Spot Trading Pair"
+  },
+  {
+   "code": "55310e70fc4b4d7c9fc4aa133700a958",
+   "decision": "rejected",
+   "ms": 1790668801341,
+   "reason": "other-product",
+   "title": "Binance Margin And Loans Token Delist on 2026-10-02"
+  },
+  {
+   "code": "2f1a743334f044abbd82e34093c7b771",
+   "decision": "rejected",
+   "ms": 1790822713435,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2026-10-05)"
+  },
+  {
+   "code": "0dfee98051814fccb9f18ce49b8425bb",
+   "decision": "tag",
+   "ms": 1791529214078,
+   "reason": "tag-inclusion",
+   "title": "Binance Will Extend the Monitoring Tag to Include BICO & CVC on 2026-10-09"
+  },
+  {
+   "code": "290a660c0b2e4e888c582cd29ecf9ecc",
+   "decision": "delist",
+   "ms": 1791957608049,
+   "reason": "spot-delist",
+   "title": "Binance Will Delist EPIC, QUICK on 2026-10-28"
+  },
+  {
+   "code": "c30e6891afa54651ba950f8af144f861",
+   "decision": "rejected",
+   "ms": 1792575001882,
+   "reason": "futures-delist",
+   "title": "Binance Futures Will Delist PTBUSDT and MITOUSDT USD\u24c8-M Perpetual Contracts (2026-10-23)"
+  }
+ ],
+ "btc": {
+  "first": "2019-12-31",
+  "last": "2026-11-12",
+  "missing_days": [],
+  "n_days": 2509,
+  "symbol": "BTCUSDT"
+ },
+ "events": [
+  {
+   "cls": "delist",
+   "code": "92eea3f48aa04210a454511151f3d362",
+   "day": "2022-03-01",
+   "ms": 1646107170632,
+   "perp": {
+    "BCD": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "CND": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MTH": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NCASH": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "YOYO": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist BCD, CND, MTH, NCASH and YOYO on 2022-03-08",
+   "tokens": [
+    "BCD",
+    "CND",
+    "MTH",
+    "NCASH",
+    "YOYO"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "da14a6dce7a64283b8d536ca1c97c026",
+   "day": "2022-04-04",
+   "ms": 1649066280853,
+   "perp": {
+    "HEGIC": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "RENBTC": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "SUSD": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist HEGIC, RENBTC and SUSD on 2022-04-11",
+   "tokens": [
+    "HEGIC",
+    "RENBTC",
+    "SUSD"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "d8f6cf77d58b4571a2c4c1ed77572256",
+   "day": "2022-07-01",
+   "ms": 1656658181710,
+   "perp": {
+    "GO": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "GRS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NAS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist GRS, NAS and GO on 2022-07-08",
+   "tokens": [
+    "GRS",
+    "NAS",
+    "GO"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "d5f079935fda4abfb4a5636f01984ec2",
+   "day": "2022-08-04",
+   "ms": 1659591197638,
+   "perp": {
+    "BRD": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "EZ": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MDA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NAV": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NXS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "QSP": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "SPARTA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist EZ, QSP, BRD, NXS, NAV, MDA and SPARTA on 2022-08-11",
+   "tokens": [
+    "EZ",
+    "QSP",
+    "BRD",
+    "NXS",
+    "NAV",
+    "MDA",
+    "SPARTA"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "cd7aae08f6a84ad89ca6a2c4d52fa32e",
+   "day": "2022-10-13",
+   "ms": 1665633628184,
+   "perp": {
+    "BTG": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "DNT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NBS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "TCT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist DNT, NBS, BTG and TCT on 2022-10-24",
+   "tokens": [
+    "DNT",
+    "NBS",
+    "BTG",
+    "TCT"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "35a4169422154c838f012331f5f4b425",
+   "day": "2022-12-15",
+   "ms": 1671076804887,
+   "perp": {
+    "BTCST": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BTCSTUSDT"
+    },
+    "MITH": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "REP": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "TRIBE": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist MITH, TRIBE, REP and BTCST on 2022-12-22",
+   "tokens": [
+    "MITH",
+    "TRIBE",
+    "REP",
+    "BTCST"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "a80d47617f1046b883b5ba237d2c75a7",
+   "day": "2023-01-19",
+   "ms": 1674100806617,
+   "perp": {
+    "BEAM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist BEAM on 2023-01-26",
+   "tokens": [
+    "BEAM"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "b461bf1f04d9456ea978f1549a31e174",
+   "day": "2023-02-20",
+   "ms": 1676865785355,
+   "perp": {
+    "AION": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "ANC": {
+     "reason": "ended-before-stamp",
+     "symbol": null
+    },
+    "MIR": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist AION, MIR, ANC on 2023-02-27",
+   "tokens": [
+    "AION",
+    "MIR",
+    "ANC"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "f1a8aa29692b4442a8f18be2076e14a0",
+   "day": "2023-03-17",
+   "ms": 1679036475726,
+   "perp": {
+    "HNT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HNTUSDT"
+    },
+    "WABI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist HNT and WABI on 2023-03-24",
+   "tokens": [
+    "HNT",
+    "WABI"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "27933fc8f6c8451fbb18c0189681441a",
+   "day": "2023-04-11",
+   "ms": 1681196422114,
+   "perp": {
+    "AUTO": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NEBL": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "QLC": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist QLC, NEBL and AUTO on 2023-04-18",
+   "tokens": [
+    "QLC",
+    "NEBL",
+    "AUTO"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "b0f241491d0e4d75aa2f8752b7bf8af5",
+   "day": "2023-07-26",
+   "ms": 1690340404342,
+   "perp": {
+    "AKRO": {
+     "reason": "ended-before-stamp",
+     "symbol": null
+    },
+    "AMB": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "AMBUSDT"
+    },
+    "ARK": {
+     "reason": "listed-too-late",
+     "symbol": null
+    },
+    "BTS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BTSUSDT"
+    },
+    "CREAM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "DREP": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "ELF": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "FTT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FTTUSDT"
+    },
+    "GFT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "JASMY": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "JASMYUSDT"
+    },
+    "LINA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "LINAUSDT"
+    },
+    "LOOM": {
+     "reason": "listed-too-late",
+     "symbol": null
+    },
+    "MLN": {
+     "reason": "listed-too-late",
+     "symbol": null
+    },
+    "MULTI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "OAX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "OMG": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "OMGUSDT"
+    },
+    "OOKI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "PERL": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "PNT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "REN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "RENUSDT"
+    },
+    "SNM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "SRM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SRMUSDT"
+    },
+    "TORN": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "VGX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "WRX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "YFII": {
+     "reason": "ended-before-stamp",
+     "symbol": null
+    }
+   },
+   "source": "article-body",
+   "title": "Introducing Seed Tags & Monitoring Tags for Tokens with High Volatility and Risks",
+   "tokens": [
+    "AKRO",
+    "AMB",
+    "ARK",
+    "BTS",
+    "CREAM",
+    "DREP",
+    "ELF",
+    "FTT",
+    "GFT",
+    "JASMY",
+    "LINA",
+    "LOOM",
+    "MLN",
+    "MULTI",
+    "OAX",
+    "OMG",
+    "OOKI",
+    "PERL",
+    "PNT",
+    "REN",
+    "SNM",
+    "SRM",
+    "TORN",
+    "VGX",
+    "WRX",
+    "YFII"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "f43511a4c1d347a8a2dd1efbdd2fe716",
+   "day": "2023-08-15",
+   "ms": 1692082868922,
+   "perp": {
+    "SNM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "SRM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SRMUSDT"
+    },
+    "YFII": {
+     "reason": "ended-before-stamp",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist SNM, SRM and YFII on 2023-08-22",
+   "tokens": [
+    "SNM",
+    "SRM",
+    "YFII"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "1eb7ee7c825d480f98b85b56a13b4c29",
+   "day": "2023-10-04",
+   "ms": 1696399216946,
+   "perp": {
+    "BETA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "BOND": {
+     "reason": "listed-too-late",
+     "symbol": null
+    },
+    "WTC": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "XEM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "XEMUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include BETA, BOND, WTC and XEM on 2023-10-04",
+   "tokens": [
+    "BETA",
+    "BOND",
+    "WTC",
+    "XEM"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "d24dd4a035c443b1ad8cf49f60b9d194",
+   "day": "2023-11-27",
+   "ms": 1701064826207,
+   "perp": {
+    "BTS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BTSUSDT"
+    },
+    "PERL": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "TORN": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "WTC": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist BTS, PERL, TORN, WTC on 2023-12-07",
+   "tokens": [
+    "BTS",
+    "PERL",
+    "TORN",
+    "WTC"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "fd710b5e647c480ab9fe2d87e3cd4b39",
+   "day": "2024-01-04",
+   "ms": 1704351609013,
+   "perp": {
+    "ANT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ANTUSDT"
+    },
+    "FIRO": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "KP3R": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MDX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MOB": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "REEF": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "REEFUSDT"
+    },
+    "VAI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "XMR": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "XMRUSDT"
+    },
+    "ZEC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ZECUSDT"
+    },
+    "ZEN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ZENUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include ANT, FIRO, KP3R, MDX, MOB, REEF, VAI, XMR, ZEC & ZEN, and Remove the Seed Tag for GMX & SUSHI on 2024-01-04",
+   "tokens": [
+    "ANT",
+    "FIRO",
+    "KP3R",
+    "MDX",
+    "MOB",
+    "REEF",
+    "VAI",
+    "XMR",
+    "ZEC",
+    "ZEN"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "f73b083ba6834771b07dbe5319917ae5",
+   "day": "2024-02-06",
+   "ms": 1707202812575,
+   "perp": {
+    "ANT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ANTUSDT"
+    },
+    "MULTI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "VAI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "XMR": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "XMRUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist ANT, MULTI, VAI, XMR on 2024-02-20",
+   "tokens": [
+    "ANT",
+    "MULTI",
+    "VAI",
+    "XMR"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "1e531578a30c46eebf52c8dae3c56092",
+   "day": "2024-03-20",
+   "ms": 1710914407471,
+   "perp": {
+    "DREP": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MOB": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "PNT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist DREP, MOB, PNT on 2024-04-03",
+   "tokens": [
+    "DREP",
+    "MOB",
+    "PNT"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "b869da2d645f41dab50227335703a741",
+   "day": "2024-04-03",
+   "ms": 1712124016944,
+   "perp": {
+    "EPX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "FOR": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "UNFI": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "UNFIUSDT"
+    },
+    "WAVES": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "WAVESUSDT"
+    },
+    "WNXM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include EPX, FOR, UNFI, WAVES & WNXM on 2024-04-03",
+   "tokens": [
+    "EPX",
+    "FOR",
+    "UNFI",
+    "WAVES",
+    "WNXM"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "f65faeeefe07417a8b6dd2900ba8da7e",
+   "day": "2024-06-03",
+   "ms": 1717383620294,
+   "perp": {
+    "OMG": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "OMGUSDT"
+    },
+    "WAVES": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "WAVESUSDT"
+    },
+    "WNXM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "XEM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "XEMUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist OMG, WAVES, WNXM, XEM on 2024-06-17",
+   "tokens": [
+    "OMG",
+    "WAVES",
+    "WNXM",
+    "XEM"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "782b121c462b499487dc8f20e0edc6b2",
+   "day": "2024-07-01",
+   "ms": 1719817203584,
+   "perp": {
+    "BAL": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BALUSDT"
+    },
+    "CTXC": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "CVP": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "CVX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "CVXUSDT"
+    },
+    "DOCK": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "HARD": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "IRIS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MBL": {
+     "reason": "ended-before-stamp",
+     "symbol": null
+    },
+    "POLS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "SNT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SNTUSDT"
+    },
+    "SUN": {
+     "reason": "listed-too-late",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include BAL, CTXC, CVP, CVX, DOCK, HARD, IRIS, MBL, POLS, SNT & SUN and Remove the Monitoring Tag for MLN & ZEN on 2024-07-01",
+   "tokens": [
+    "BAL",
+    "CTXC",
+    "CVP",
+    "CVX",
+    "DOCK",
+    "HARD",
+    "IRIS",
+    "MBL",
+    "POLS",
+    "SNT",
+    "SUN"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "4ffb7170f2f84ce3a06cc0cf1a788c23",
+   "day": "2024-07-08",
+   "ms": 1720422069631,
+   "perp": {
+    "BOND": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BONDUSDT"
+    },
+    "DOCK": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MDX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "POLS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist BOND, DOCK, MDX, POLS on 2024-07-22",
+   "tokens": [
+    "BOND",
+    "DOCK",
+    "MDX",
+    "POLS"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "e2fcd2c945654c8d832395335429403e",
+   "day": "2024-08-12",
+   "ms": 1723446011329,
+   "perp": {
+    "CVP": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "EPX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "FOR": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "LOOM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "LOOMUSDT"
+    },
+    "REEF": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "REEFUSDT"
+    },
+    "VGX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist CVP, EPX, FOR, LOOM, REEF, VGX on 2024-08-26",
+   "tokens": [
+    "CVP",
+    "EPX",
+    "FOR",
+    "LOOM",
+    "REEF",
+    "VGX"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "2178333b0324406088737cf07436ba43",
+   "day": "2024-10-03",
+   "ms": 1727938805269,
+   "perp": {
+    "BLZ": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BLZUSDT"
+    },
+    "CLV": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "KEY": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "KEYUSDT"
+    },
+    "PROS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "VITE": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include BLZ, CLV, KEY, PROS & VITE and Remove the Seed Tag for PENDLE & SEI on 2024-10-03",
+   "tokens": [
+    "BLZ",
+    "CLV",
+    "KEY",
+    "PROS",
+    "VITE"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "043c8407bb904652a428573a50d07e07",
+   "day": "2024-10-23",
+   "ms": 1729666837062,
+   "perp": {
+    "IDRT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "KP3R": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "OOKI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "UNFI": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "UNFIUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist IDRT, KP3R, OOKI, UNFI on 2024-11-06",
+   "tokens": [
+    "IDRT",
+    "KP3R",
+    "OOKI",
+    "UNFI"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "131b75b63a71490393034f36de70c92c",
+   "day": "2024-11-26",
+   "ms": 1732609814278,
+   "perp": {
+    "GFT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "IRIS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "KEY": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "KEYUSDT"
+    },
+    "OAX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "REN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "RENUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist GFT, IRIS, KEY, OAX, REN on 2024-12-10",
+   "tokens": [
+    "GFT",
+    "IRIS",
+    "KEY",
+    "OAX",
+    "REN"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "b140faee7cf9482cb10257308abda245",
+   "day": "2024-12-18",
+   "ms": 1734508872939,
+   "perp": {
+    "AKRO": {
+     "reason": "ended-before-stamp",
+     "symbol": null
+    },
+    "BLZ": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BLZUSDT"
+    },
+    "WRX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist AKRO, BLZ, WRX on 2024-12-25",
+   "tokens": [
+    "AKRO",
+    "BLZ",
+    "WRX"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "00ae3dd0e47746f0a118c9ea3172dde3",
+   "day": "2025-01-02",
+   "ms": 1735808419305,
+   "perp": {
+    "STMX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "STMXUSDT"
+    },
+    "TROY": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "TROYUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include STMX & TROY, Remove the Monitoring Tag for CVX & SUN, and Remove the Seed Tag for ARKM, BLUR, JTO & TIA on 2025-01-02",
+   "tokens": [
+    "STMX",
+    "TROY"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "f3cc64a8758d4bb394e0830e5b31da97",
+   "day": "2025-02-17",
+   "ms": 1739775624287,
+   "perp": {
+    "AMB": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "AMBUSDT"
+    },
+    "CLV": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "STMX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "STMXUSDT"
+    },
+    "VITE": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist AMB, CLV, STMX, VITE on 2025-02-24",
+   "tokens": [
+    "AMB",
+    "CLV",
+    "STMX",
+    "VITE"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "d0a0b3c398264e9eb460f0e64324453c",
+   "day": "2025-03-04",
+   "ms": 1741075282062,
+   "perp": {
+    "AERGO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "AERGOUSDT"
+    },
+    "ALPACA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ALPACAUSDT"
+    },
+    "AST": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "BADGER": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BADGERUSDT"
+    },
+    "BURGER": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "COMBO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "COMBOUSDT"
+    },
+    "NULS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NULSUSDT"
+    },
+    "STPT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "STPTUSDT"
+    },
+    "UFT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "VIDT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VIDTUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Change the Monitoring Tag Inclusion Frequency to Monthly and Extend the Monitoring Tag to Include AERGO, ALPACA, AST, BADGER, BURGER, COMBO, NULS, STPT, UFT & VIDT on 2025-03-04",
+   "tokens": [
+    "AERGO",
+    "ALPACA",
+    "AST",
+    "BADGER",
+    "BURGER",
+    "COMBO",
+    "NULS",
+    "STPT",
+    "UFT",
+    "VIDT"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "79167fa2f976432eaab191563887ffd1",
+   "day": "2025-03-07",
+   "ms": 1741338045829,
+   "perp": {
+    "GPS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "GPSUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to GPS on 2025-03-07",
+   "tokens": [
+    "GPS"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "db7ad1c7aa6248cda735102cdcdc4b8d",
+   "day": "2025-03-21",
+   "ms": 1742536220352,
+   "perp": {
+    "AERGO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "AERGOUSDT"
+    },
+    "AST": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "BURGER": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "COMBO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "COMBOUSDT"
+    },
+    "LINA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "LINAUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist AERGO, AST, BURGER, COMBO, LINA on 2025-03-28",
+   "tokens": [
+    "AERGO",
+    "AST",
+    "BURGER",
+    "COMBO",
+    "LINA"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "5efec0c8ac784f74beb742b88fba8f02",
+   "day": "2025-04-03",
+   "ms": 1743663636245,
+   "perp": {
+    "ARDR": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "BSW": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BSWUSDT"
+    },
+    "FLM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FLMUSDT"
+    },
+    "LTO": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NKN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NKNUSDT"
+    },
+    "PDA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "PERP": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "PERPUSDT"
+    },
+    "VIB": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "VOXEL": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VOXELUSDT"
+    },
+    "WING": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include ARDR, BSW, FLM, LTO, NKN, PDA, PERP, VIB, VOXEL & WING, and Remove the Seed Tag for JUP, STRK & TON on 2025-04-03",
+   "tokens": [
+    "ARDR",
+    "BSW",
+    "FLM",
+    "LTO",
+    "NKN",
+    "PDA",
+    "PERP",
+    "VIB",
+    "VOXEL",
+    "WING"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "fac9c3e401da4cc8b604566fd261d70c",
+   "day": "2025-04-08",
+   "ms": 1744092007355,
+   "perp": {
+    "BADGER": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BADGERUSDT"
+    },
+    "BAL": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BALUSDT"
+    },
+    "BETA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "CREAM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "CTXC": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "ELF": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "FIRO": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "HARD": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NULS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NULSUSDT"
+    },
+    "PROS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "SNT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SNTUSDT"
+    },
+    "TROY": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "TROYUSDT"
+    },
+    "UFT": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "VIDT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VIDTUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16",
+   "tokens": [
+    "BADGER",
+    "BAL",
+    "BETA",
+    "CREAM",
+    "CTXC",
+    "ELF",
+    "FIRO",
+    "HARD",
+    "NULS",
+    "PROS",
+    "SNT",
+    "TROY",
+    "UFT",
+    "VIDT"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "0274f9d47da1437990bc13eb17b0ec99",
+   "day": "2025-04-24",
+   "ms": 1745467205257,
+   "perp": {
+    "ALPACA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ALPACAUSDT"
+    },
+    "PDA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "VIB": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "WING": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist ALPACA, PDA, VIB, WING on 2025-05-02",
+   "tokens": [
+    "ALPACA",
+    "PDA",
+    "VIB",
+    "WING"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "514e8ba0fef0462b97a8ce1506dc474d",
+   "day": "2025-05-07",
+   "ms": 1746604833736,
+   "perp": {
+    "ALPHA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ALPHAUSDT"
+    },
+    "HIFI": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HIFIUSDT"
+    },
+    "LEVER": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "LEVERUSDT"
+    },
+    "MOVE": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "MOVEUSDT"
+    },
+    "PORTAL": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "PORTALUSDT"
+    },
+    "REI": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "REIUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include ALPHA, HIFI, LEVER, MOVE, PORTAL & REI on 2025-05-07",
+   "tokens": [
+    "ALPHA",
+    "HIFI",
+    "LEVER",
+    "MOVE",
+    "PORTAL",
+    "REI"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "74103b430fbe40438e59a5c0e1b5b201",
+   "day": "2025-06-05",
+   "ms": 1749099618433,
+   "perp": {
+    "BIFI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "FIS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FISUSDT"
+    },
+    "KMD": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MDT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "MDTUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include BIFI, FIS, KMD & MDT on 2025-06-05",
+   "tokens": [
+    "BIFI",
+    "FIS",
+    "KMD",
+    "MDT"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "173b2a63c03141009029407ecfebd14a",
+   "day": "2025-06-26",
+   "ms": 1750921209887,
+   "perp": {
+    "ALPHA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ALPHAUSDT"
+    },
+    "BSW": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BSWUSDT"
+    },
+    "KMD": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "LEVER": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "LEVERUSDT"
+    },
+    "LTO": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist ALPHA, BSW, KMD, LEVER, LTO on 2025-07-04",
+   "tokens": [
+    "ALPHA",
+    "BSW",
+    "KMD",
+    "LEVER",
+    "LTO"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "d542f33541414ba5b1289b8812d452de",
+   "day": "2025-07-07",
+   "ms": 1751858997414,
+   "perp": {
+    "BAKE": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BAKEUSDT"
+    },
+    "IDEX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "IDEXUSDT"
+    },
+    "SLF": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include BAKE, IDEX & SLF on 2025-07-07",
+   "tokens": [
+    "BAKE",
+    "IDEX",
+    "SLF"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "b601f1d986ad403b8c667dd0ca17e2e7",
+   "day": "2025-09-03",
+   "ms": 1756868394550,
+   "perp": {
+    "BAKE": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BAKEUSDT"
+    },
+    "HIFI": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HIFIUSDT"
+    },
+    "SLF": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist BAKE, HIFI, SLF on 2025-09-17",
+   "tokens": [
+    "BAKE",
+    "HIFI",
+    "SLF"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "13bbf79fa3da4919a6388fe86125c533",
+   "day": "2025-10-09",
+   "ms": 1759976992334,
+   "perp": {
+    "WAN": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include WAN, Remove the Monitoring Tag for GPS & MBL, and Remove the Seed Tag for BERA, BIO, ZK & ZRO on 2025-10-09",
+   "tokens": [
+    "WAN"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "a6c810fc36424548917e146dbe21469a",
+   "day": "2025-10-29",
+   "ms": 1761706804123,
+   "perp": {
+    "FLM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FLMUSDT"
+    },
+    "KDA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "KDAUSDT"
+    },
+    "PERP": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "PERPUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist FLM, KDA, PERP on 2025-11-12",
+   "tokens": [
+    "FLM",
+    "KDA",
+    "PERP"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "aec9353b427f4b1ab42415e770e2eb5a",
+   "day": "2025-12-01",
+   "ms": 1764563424832,
+   "perp": {
+    "CHESS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "CHESSUSDT"
+    },
+    "DENT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "DENTUSDT"
+    },
+    "DF": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "DFUSDT"
+    },
+    "GHST": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "GHSTUSDT"
+    },
+    "SXP": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SXPUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include CHESS, DENT, DF, GHST & SXP on 2025-12-01",
+   "tokens": [
+    "CHESS",
+    "DENT",
+    "DF",
+    "GHST",
+    "SXP"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "f958d031b39f46b1ab3947b1d53fa736",
+   "day": "2025-12-03",
+   "ms": 1764743396380,
+   "perp": {
+    "FIS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FISUSDT"
+    },
+    "REI": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "REIUSDT"
+    },
+    "VOXEL": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VOXELUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist FIS, REI, VOXEL on 2025-12-17",
+   "tokens": [
+    "FIS",
+    "REI",
+    "VOXEL"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "b15c2beb81b94e7a846f905b267ce546",
+   "day": "2026-01-02",
+   "ms": 1767351597739,
+   "perp": {
+    "ACA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "D": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "DUSDT"
+    },
+    "DATA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "FLOW": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FLOWUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include ACA, D, DATA & FLOW on 2026-01-02",
+   "tokens": [
+    "ACA",
+    "D",
+    "DATA",
+    "FLOW"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "87a9bdf137f348668a85575ee02b8a27",
+   "day": "2026-02-02",
+   "ms": 1770022792762,
+   "perp": {
+    "ACA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "CHESS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "CHESSUSDT"
+    },
+    "DATA": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "DF": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "DFUSDT"
+    },
+    "GHST": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "GHSTUSDT"
+    },
+    "NKN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NKNUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist ACA, CHESS, DATA, DF, GHST, NKN on 2026-02-13",
+   "tokens": [
+    "ACA",
+    "CHESS",
+    "DATA",
+    "DF",
+    "GHST",
+    "NKN"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "e56e5e6b33ad493c98a71189643ade4f",
+   "day": "2026-03-06",
+   "ms": 1772785796086,
+   "perp": {
+    "COS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "COSUSDT"
+    },
+    "DEGO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "DEGOUSDT"
+    },
+    "FORTH": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FORTHUSDT"
+    },
+    "FUN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FUNUSDT"
+    },
+    "HOOK": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HOOKUSDT"
+    },
+    "LRC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "LRCUSDT"
+    },
+    "MBOX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "MBOXUSDT"
+    },
+    "OXT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "OXTUSDT"
+    },
+    "WIF": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "WIFUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include COS, DEGO, FORTH, FUN, HOOK, LRC, MBOX, OXT & WIF, Remove the Monitoring Tag for FLOW, and Remove the Seed Tag for ONDO & VIRTUAL on 2026-03-06",
+   "tokens": [
+    "COS",
+    "DEGO",
+    "FORTH",
+    "FUN",
+    "HOOK",
+    "LRC",
+    "MBOX",
+    "OXT",
+    "WIF"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "2448b786202948bea67d4cd66f66d208",
+   "day": "2026-03-13",
+   "ms": 1773392423060,
+   "perp": {
+    "A2Z": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "A2ZUSDT"
+    },
+    "ATA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ATAUSDT"
+    },
+    "FIO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FIOUSDT"
+    },
+    "GTC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "GTCUSDT"
+    },
+    "NTRN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NTRNUSDT"
+    },
+    "PHB": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "PHBUSDT"
+    },
+    "QI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "RDNT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "RDNTUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include ATA, A2Z, FIO, GTC, NTRN, PHB, QI & RDNT on 2026-03-13",
+   "tokens": [
+    "ATA",
+    "A2Z",
+    "FIO",
+    "GTC",
+    "NTRN",
+    "PHB",
+    "QI",
+    "RDNT"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "day": "2026-03-18",
+   "ms": 1773824408667,
+   "perp": {
+    "A2Z": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "A2ZUSDT"
+    },
+    "FORTH": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FORTHUSDT"
+    },
+    "HOOK": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HOOKUSDT"
+    },
+    "IDEX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "IDEXUSDT"
+    },
+    "LRC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "LRCUSDT"
+    },
+    "NTRN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NTRNUSDT"
+    },
+    "RDNT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "RDNTUSDT"
+    },
+    "SXP": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SXPUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01",
+   "tokens": [
+    "A2Z",
+    "FORTH",
+    "HOOK",
+    "IDEX",
+    "LRC",
+    "NTRN",
+    "RDNT",
+    "SXP"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "d26a627649ee44fca27e07672add9ac2",
+   "day": "2026-04-09",
+   "ms": 1775714405744,
+   "perp": {
+    "BIFI": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "FIO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FIOUSDT"
+    },
+    "FUN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "FUNUSDT"
+    },
+    "MDT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "MDTUSDT"
+    },
+    "OXT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "OXTUSDT"
+    },
+    "WAN": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist BIFI, FIO, FUN, MDT, OXT, WAN on 2026-04-23",
+   "tokens": [
+    "BIFI",
+    "FIO",
+    "FUN",
+    "MDT",
+    "OXT",
+    "WAN"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "f2286b6232434b31927ccd3e7187afd3",
+   "day": "2026-04-14",
+   "ms": 1776133806111,
+   "perp": {
+    "FARM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "HIGH": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HIGHUSDT"
+    },
+    "MLN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "MLNUSDT"
+    },
+    "RESOLV": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "RESOLVUSDT"
+    },
+    "SYS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SYSUSDT"
+    },
+    "TRU": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "TRUUSDT"
+    },
+    "VELODROME": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VELODROMEUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include FARM, HIGH, MLN, RESOLV, SYS, TRU & VELODROME, Remove the Seed Tag for XAUT on 2026-04-14",
+   "tokens": [
+    "FARM",
+    "HIGH",
+    "MLN",
+    "RESOLV",
+    "SYS",
+    "TRU",
+    "VELODROME"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "d067b373496c44a4ab8d28f3e90b66ad",
+   "day": "2026-04-17",
+   "ms": 1776416406263,
+   "perp": {
+    "DEGO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "DEGOUSDT"
+    },
+    "DENT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "DENTUSDT"
+    },
+    "TRU": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "TRUUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist DEGO, DENT, TRU on 2026-04-28",
+   "tokens": [
+    "DEGO",
+    "DENT",
+    "TRU"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "629b1970537e45b8801427d3de49a25b",
+   "day": "2026-04-30",
+   "ms": 1777532405981,
+   "perp": {
+    "NFP": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NFPUSDT"
+    },
+    "NOM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NOMUSDT"
+    },
+    "POND": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "QUICK": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "QUICKUSDT"
+    },
+    "VIC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VICUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include NFP, NOM, POND, QUICK & VIC on 2026-04-30",
+   "tokens": [
+    "NFP",
+    "NOM",
+    "POND",
+    "QUICK",
+    "VIC"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "a42f51022cb649aea0b4cb808205fd76",
+   "day": "2026-05-13",
+   "ms": 1778659204681,
+   "perp": {
+    "ATA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ATAUSDT"
+    },
+    "FARM": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "MLN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "MLNUSDT"
+    },
+    "PHB": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "PHBUSDT"
+    },
+    "SYS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SYSUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist ATA, FARM, MLN, PHB, SYS on 2026-05-27",
+   "tokens": [
+    "ATA",
+    "FARM",
+    "MLN",
+    "PHB",
+    "SYS"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "ca0f3a3ff83243b79102b4561c8ccdc2",
+   "day": "2026-05-22",
+   "ms": 1779436804004,
+   "perp": {
+    "ALCX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "COOKIE": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "COOKIEUSDT"
+    },
+    "DODO": {
+     "reason": "override",
+     "symbol": null
+    },
+    "EPIC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "EPICUSDT"
+    },
+    "HEI": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HEIUSDT"
+    },
+    "HFT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HFTUSDT"
+    },
+    "STORJ": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "STORJUSDT"
+    },
+    "SYN": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SYNUSDT"
+    },
+    "TLM": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "TLMUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include ALCX, COOKIE, DODO, EPIC, HEI, HFT, STORJ, SYN & TLM on 2026-05-22",
+   "tokens": [
+    "ALCX",
+    "COOKIE",
+    "DODO",
+    "EPIC",
+    "HEI",
+    "HFT",
+    "STORJ",
+    "SYN",
+    "TLM"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "24aced8c698649d9a552a47eeead5e34",
+   "day": "2026-06-05",
+   "ms": 1780642807472,
+   "perp": {
+    "COS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "COSUSDT"
+    },
+    "D": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "DUSDT"
+    },
+    "HIGH": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HIGHUSDT"
+    },
+    "MBOX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "MBOXUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist COS, D, HIGH, MBOX on 2026-06-19",
+   "tokens": [
+    "COS",
+    "D",
+    "HIGH",
+    "MBOX"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "2ce2c4973d85405a9bb5fffc475c99dc",
+   "day": "2026-06-18",
+   "ms": 1781766018693,
+   "perp": {
+    "ACT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ACTUSDT"
+    },
+    "BLUR": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BLURUSDT"
+    },
+    "PIVX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "QKC": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include ACT, BLUR, PIVX & QKC on 2026-06-18",
+   "tokens": [
+    "ACT",
+    "BLUR",
+    "PIVX",
+    "QKC"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "a9c1a7bb97064c69a660316bff39f2bd",
+   "day": "2026-06-26",
+   "ms": 1782464415053,
+   "perp": {
+    "ALCX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "ARDR": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "NFP": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "NFPUSDT"
+    },
+    "POND": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist ALCX, ARDR, NFP, POND on 2026-07-10",
+   "tokens": [
+    "ALCX",
+    "ARDR",
+    "NFP",
+    "POND"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "999c897add924d01a8b10c26b316690c",
+   "day": "2026-07-03",
+   "ms": 1783058411367,
+   "perp": {
+    "AEUR": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "PYR": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "SCRT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SCRTUSDT"
+    },
+    "VANRY": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VANRYUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include AEUR, PYR, SCRT & VANRY on 2026-07-03",
+   "tokens": [
+    "AEUR",
+    "PYR",
+    "SCRT",
+    "VANRY"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "12056a79b7f545a3aa03fa5031f77b16",
+   "day": "2026-07-24",
+   "ms": 1784862006343,
+   "perp": {
+    "ACX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ACXUSDT"
+    },
+    "LSK": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "LSKUSDT"
+    },
+    "STX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "STXUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include ACX, LSK & STX on 2026-07-24",
+   "tokens": [
+    "ACX",
+    "LSK",
+    "STX"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "64cf7544b98e4f2ca7f54ba11fd72d9d",
+   "day": "2026-08-03",
+   "ms": 1785727810683,
+   "perp": {
+    "ACX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ACXUSDT"
+    },
+    "HFT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "HFTUSDT"
+    },
+    "PIVX": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "PYR": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "VANRY": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VANRYUSDT"
+    },
+    "VIC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "VICUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist ACX, HFT, PIVX, PYR, VANRY, VIC on 2026-08-17",
+   "tokens": [
+    "ACX",
+    "HFT",
+    "PIVX",
+    "PYR",
+    "VANRY",
+    "VIC"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "1ec3ae2e21274a92858aa8cf58ae6c3a",
+   "day": "2026-08-11",
+   "ms": 1786438812289,
+   "perp": {
+    "GLMR": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "GLMRUSDT"
+    },
+    "ICX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ICXUSDT"
+    },
+    "MOVR": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "MOVRUSDT"
+    },
+    "RARE": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "RAREUSDT"
+    },
+    "SOPH": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SOPHUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include GLMR, ICX, MOVR, RARE & SOPH on 2026-08-11",
+   "tokens": [
+    "GLMR",
+    "ICX",
+    "MOVR",
+    "RARE",
+    "SOPH"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "d72915ed7a60473b92f0818d959a227a",
+   "day": "2026-08-20",
+   "ms": 1787205606608,
+   "perp": {
+    "ICX": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "ICXUSDT"
+    },
+    "SCRT": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SCRTUSDT"
+    },
+    "STORJ": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "STORJUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist ICX, SCRT, STORJ on 2026-09-03",
+   "tokens": [
+    "ICX",
+    "SCRT",
+    "STORJ"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "59c847eea19149369c3bf4b01edfa6df",
+   "day": "2026-09-04",
+   "ms": 1788508806500,
+   "perp": {
+    "AVA": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "AVAUSDT"
+    },
+    "GNS": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    },
+    "SCR": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "SCRUSDT"
+    },
+    "TOWNS": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "TOWNSUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include AVA, GNS, SCR & TOWNS on 2026-09-04",
+   "tokens": [
+    "AVA",
+    "GNS",
+    "SCR",
+    "TOWNS"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "8e6fd91b79a34bddbd7643ef002db47e",
+   "day": "2026-09-10",
+   "ms": 1789020012727,
+   "perp": {
+    "USDP": {
+     "reason": "no-archive-symbol",
+     "symbol": null
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist USDP on 2026-09-24",
+   "tokens": [
+    "USDP"
+   ]
+  },
+  {
+   "cls": "tag",
+   "code": "0dfee98051814fccb9f18ce49b8425bb",
+   "day": "2026-10-09",
+   "ms": 1791529214078,
+   "perp": {
+    "BICO": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "BICOUSDT"
+    },
+    "CVC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "CVCUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Extend the Monitoring Tag to Include BICO & CVC on 2026-10-09",
+   "tokens": [
+    "BICO",
+    "CVC"
+   ]
+  },
+  {
+   "cls": "delist",
+   "code": "290a660c0b2e4e888c582cd29ecf9ecc",
+   "day": "2026-10-14",
+   "ms": 1791957608049,
+   "perp": {
+    "EPIC": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "EPICUSDT"
+    },
+    "QUICK": {
+     "btc_missing_days": [],
+     "futures_delist_pending": null,
+     "missing_days": [],
+     "reason": "covers-stamp",
+     "symbol": "QUICKUSDT"
+    }
+   },
+   "source": "title",
+   "title": "Binance Will Delist EPIC, QUICK on 2026-10-28",
+   "tokens": [
+    "EPIC",
+    "QUICK"
+   ]
+  }
+ ],
+ "futures_delist": [
+  {
+   "code": "4baf8d70485c46e38637bd063c58c4d8",
+   "latest_ms": 1649754000000,
+   "ms": 1649049710096,
+   "symbols": [],
+   "times_ms": [
+    1649667600000,
+    1649754000000
+   ],
+   "title": "Binance Futures Will Delist 1000BTTC and YFII USDT-Margined Contracts"
+  },
+  {
+   "code": "7305d3e50f0647838078ded2be975d48",
+   "latest_ms": 1652950800000,
+   "ms": 1652070302529,
+   "symbols": [],
+   "times_ms": [
+    1652950800000
+   ],
+   "title": "Binance Futures Will Delist FTTBUSD USDT-Margined Contract"
+  },
+  {
+   "code": "1b73e64616ee4e769c29e70c66728d1a",
+   "latest_ms": null,
+   "ms": 1652331009976,
+   "symbols": [],
+   "times_ms": [],
+   "title": "Binance Futures to Delist Coin-Margined LUNA Perpetual Contracts and Update the Leverage & Margin Tiers for USDT-Margined LUNA Perpetual Contracts"
+  },
+  {
+   "code": "ef3ce76d5c2d45ee9b6dc3f281cde744",
+   "latest_ms": 1652369400000,
+   "ms": 1652367541271,
+   "symbols": [],
+   "times_ms": [
+    1652369400000
+   ],
+   "title": "Binance Futures Will Delist LUNA USDT-Margined Contract"
+  },
+  {
+   "code": "0bfb6cfd10aa4d26926260c0159ef58d",
+   "latest_ms": 1652414400000,
+   "ms": 1652408842500,
+   "symbols": [],
+   "times_ms": [
+    1652414400000
+   ],
+   "title": "Binance Futures Will Delist USDT-Margined ANC Perpetual Contract"
+  },
+  {
+   "code": "d1cb959677034c45b5149f1d998ae2b1",
+   "latest_ms": 1653642000000,
+   "ms": 1652871565804,
+   "symbols": [],
+   "times_ms": [
+    1653555600000,
+    1653642000000
+   ],
+   "title": "Binance Futures Will Delist AKRO and DODO USDT-Margined Contracts"
+  },
+  {
+   "code": "af469aeeab074738bb4a276070a9d11b",
+   "latest_ms": 1654851600000,
+   "ms": 1654165095432,
+   "symbols": [],
+   "times_ms": [
+    1654765200000,
+    1654851600000
+   ],
+   "title": "Binance Futures Will Delist TLM and ICP USDT-Margined Contracts"
+  },
+  {
+   "code": "6ce355dedc5d438abde7b5dc99b3a56d",
+   "latest_ms": 1655456400000,
+   "ms": 1654855342935,
+   "symbols": [],
+   "times_ms": [
+    1655456400000
+   ],
+   "title": "Binance Futures Will Delist USDT-Margined SC Perpetual Contract"
+  },
+  {
+   "code": "0cc7c656b0704373bb4088fc531f89e0",
+   "latest_ms": 1656579600000,
+   "ms": 1655953224692,
+   "symbols": [],
+   "times_ms": [
+    1656579600000
+   ],
+   "title": "Binance Futures Will Delist CRV Coin-Margined Perpetual Contract"
+  },
+  {
+   "code": "90498d8e2fec42468ec3d659bdfbb78b",
+   "latest_ms": 1660813200000,
+   "ms": 1660013959306,
+   "symbols": [],
+   "times_ms": [
+    1660813200000
+   ],
+   "title": "Binance Futures Will Delist USDT-Margined BTS Perpetual Contract"
+  },
+  {
+   "code": "b312715afbff4d7493b77089967303b1",
+   "latest_ms": 1661418000000,
+   "ms": 1660730127229,
+   "symbols": [],
+   "times_ms": [
+    1661418000000
+   ],
+   "title": "Binance Futures Will Delist USDT-Margined BLZ Perpetual Contract"
+  },
+  {
+   "code": "9a6676662bd5417c92267953f3819dd0",
+   "latest_ms": 1668486600000,
+   "ms": 1668409204880,
+   "symbols": [
+    "RAYUSDT",
+    "SRMUSDT"
+   ],
+   "times_ms": [
+    1668484800000,
+    1668486600000
+   ],
+   "title": "Binance Futures Will Delist RAYUSDT and SRMUSDT Perpetual Futures Contracts"
+  },
+  {
+   "code": "3188e26f14a1464b91487abad452c04f",
+   "latest_ms": 1669712400000,
+   "ms": 1669606227750,
+   "symbols": [
+    "CVCUSDT"
+   ],
+   "times_ms": [
+    1669626000000,
+    1669712400000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of CVCUSDT Perpetual Futures Contract"
+  },
+  {
+   "code": "2a7d2f14142646959b101f4254d22340",
+   "latest_ms": 1672045200000,
+   "ms": 1671768907038,
+   "symbols": [],
+   "times_ms": [
+    1672045200000
+   ],
+   "title": "Binance Futures Will Delist COIN-M GALAUSD, ZILUSD and VETUSD Perpetual Contracts"
+  },
+  {
+   "code": "edab50e09da64814970d9fb86a740617",
+   "latest_ms": 1678870800000,
+   "ms": 1678688117686,
+   "symbols": [],
+   "times_ms": [
+    1678701600000,
+    1678867200000,
+    1678870800000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M CVXBUSD, GALBUSD and WAVESBUSD Perpetual Contracts"
+  },
+  {
+   "code": "2f5fb73f1b6e411090318ca60a9f47bc",
+   "latest_ms": 1679475600000,
+   "ms": 1679296806814,
+   "symbols": [],
+   "times_ms": [
+    1679306400000,
+    1679472000000,
+    1679475600000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M ICPBUSD and LUNA2BUSD Perpetual Contracts"
+  },
+  {
+   "code": "7fd48887590649699ad65419023bacfb",
+   "latest_ms": 1680598800000,
+   "ms": 1680253507407,
+   "symbols": [],
+   "times_ms": [
+    1680258600000,
+    1680597000000,
+    1680598800000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M AMBBUSD, LEVERBUSD and TLMBUSD Perpetual Contracts"
+  },
+  {
+   "code": "9453bc521ae34d2e8ea22e15c5635a29",
+   "latest_ms": 1681203600000,
+   "ms": 1680776103366,
+   "symbols": [],
+   "times_ms": [
+    1680780600000,
+    1681201800000,
+    1681203600000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M PHBBUSD, SANDBUSD and UNIBUSD Perpetual Contracts"
+  },
+  {
+   "code": "10d9ee3c69584398894526c5dba9e3a6",
+   "latest_ms": 1681808400000,
+   "ms": 1681466509865,
+   "symbols": [],
+   "times_ms": [
+    1681484400000,
+    1681806600000,
+    1681808400000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M GMTBUSD, NEARBUSD and AVAXBUSD Perpetual Contracts"
+  },
+  {
+   "code": "084acdd39aae4b1b8660fc3b9ab7efef",
+   "latest_ms": 1682413200000,
+   "ms": 1682071224769,
+   "symbols": [],
+   "times_ms": [
+    1682078400000,
+    1682411400000,
+    1682413200000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M ETCBUSD Perpetual Contract"
+  },
+  {
+   "code": "72ae35cffb8842d5acb8ff22c70f8dd3",
+   "latest_ms": 1683018000000,
+   "ms": 1682678706662,
+   "symbols": [],
+   "times_ms": [
+    1682685000000,
+    1683016200000,
+    1683018000000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M FILBUSD Perpetual Contract"
+  },
+  {
+   "code": "4536c9819c5d498a975ae40fcd6ecac4",
+   "latest_ms": 1683622800000,
+   "ms": 1683251412529,
+   "symbols": [],
+   "times_ms": [
+    1683289800000,
+    1683621000000,
+    1683622800000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M DOTBUSD Perpetual Contract"
+  },
+  {
+   "code": "575835ebb33346b28cf1dd78a8a50aaa",
+   "latest_ms": 1684227600000,
+   "ms": 1683874532167,
+   "symbols": [],
+   "times_ms": [
+    1683894600000,
+    1684225800000,
+    1684227600000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M APEBUSD Perpetual Contract"
+  },
+  {
+   "code": "e7d6bc2aa47c42a28d2e023a7ceb7234",
+   "latest_ms": 1684832400000,
+   "ms": 1684470616021,
+   "symbols": [],
+   "times_ms": [
+    1684499400000,
+    1684830600000,
+    1684832400000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M LINKBUSD Perpetual Contract"
+  },
+  {
+   "code": "51ac7ced06274cd08710b38289e2ea43",
+   "latest_ms": 1685610000000,
+   "ms": 1685007904026,
+   "symbols": [],
+   "times_ms": [
+    1685017800000,
+    1685608200000,
+    1685610000000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M 1000SHIBBUSD Perpetual Contract"
+  },
+  {
+   "code": "0e84e685101d457a95cbe5c550b6e891",
+   "latest_ms": 1686214800000,
+   "ms": 1685610906427,
+   "symbols": [],
+   "times_ms": [
+    1685620800000,
+    1686213000000,
+    1686214800000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M 1000LUNCBUSD Perpetual Contract"
+  },
+  {
+   "code": "3e64fa6aa26c40e0be51e0f8c3a1d9b1",
+   "latest_ms": 1689843600000,
+   "ms": 1689072303374,
+   "symbols": [],
+   "times_ms": [
+    1689084000000,
+    1689841800000,
+    1689843600000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M AGIXBUSD Perpetual Contract"
+  },
+  {
+   "code": "217d0ff70eac403480b5137e2a90b424",
+   "latest_ms": 1690448400000,
+   "ms": 1689840007070,
+   "symbols": [],
+   "times_ms": [
+    1689861600000,
+    1690446600000,
+    1690448400000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M LDOBUSD and GALABUSD Perpetual Contracts"
+  },
+  {
+   "code": "584d65bfa49f4f5894d2416e76214dc5",
+   "latest_ms": 1691053200000,
+   "ms": 1690451103030,
+   "symbols": [],
+   "times_ms": [
+    1690466400000,
+    1691051400000,
+    1691053200000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M APTBUSD and FTMBUSD Perpetual Contracts"
+  },
+  {
+   "code": "63f3038beda94f3e9a05652f55c4fb75",
+   "latest_ms": 1691658000000,
+   "ms": 1691055003469,
+   "symbols": [],
+   "times_ms": [
+    1691071200000,
+    1691128800000,
+    1691656200000,
+    1691658000000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M TRXBUSD and DODOBUSD Perpetual Contracts"
+  },
+  {
+   "code": "63b70cab6d4f482f892f0fd7bda9e05e",
+   "latest_ms": 1692262800000,
+   "ms": 1691658004905,
+   "symbols": [],
+   "times_ms": [
+    1691670600000,
+    1692261000000,
+    1692262800000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M ADABUSD and MATICBUSD Perpetual Contract"
+  },
+  {
+   "code": "f662330259c44f869ea1dd618925677e",
+   "latest_ms": 1692867600000,
+   "ms": 1692266704608,
+   "symbols": [],
+   "times_ms": [
+    1692275400000,
+    1692865800000,
+    1692867600000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M LTCBUSD and DOGEBUSD Perpetual Contracts"
+  },
+  {
+   "code": "6723cf112ab943bb9db7542bf8e107f0",
+   "latest_ms": 1693213200000,
+   "ms": 1692616803287,
+   "symbols": [],
+   "times_ms": [
+    1692621000000,
+    1693211400000,
+    1693213200000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M SOLBUSD Perpetual Contract"
+  },
+  {
+   "code": "d980d81501594f80b2903cdfe29f1166",
+   "latest_ms": 1702522800000,
+   "ms": 1700814330006,
+   "symbols": [],
+   "times_ms": [
+    1700834400000,
+    1701410400000,
+    1701943200000,
+    1702013400000,
+    1702015200000,
+    1702272600000,
+    1702274400000,
+    1702285200000,
+    1702288800000,
+    1702522800000
+   ],
+   "title": "Binance Margin & Binance Futures Will Delist BUSD"
+  },
+  {
+   "code": "673183dd8eea4e3cba1596dcec7565d1",
+   "latest_ms": 1711443600000,
+   "ms": 1710824702006,
+   "symbols": [
+    "BLUEBIRDUSDT",
+    "FOOTBALLUSDT"
+   ],
+   "times_ms": [
+    1710844200000,
+    1711441800000,
+    1711443600000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M FOOTBALLUSDT and BLUEBIRDUSDT Perpetual Contracts"
+  },
+  {
+   "code": "ce74360a3fd444b2b35da7186f8dd0ad",
+   "latest_ms": 1711962000000,
+   "ms": 1711341612437,
+   "symbols": [
+    "ANTUSDT",
+    "CTKUSDT",
+    "DGBUSDT"
+   ],
+   "times_ms": [
+    1711362600000,
+    1711960200000,
+    1711962000000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M ANTUSDT, DGBUSDT and CTKUSDT Perpetual Contracts"
+  },
+  {
+   "code": "a58cc13f78a34fbba11f00ff7144e9ee",
+   "latest_ms": 1715677200000,
+   "ms": 1714971617942,
+   "symbols": [
+    "CVXUSDT",
+    "MBLUSDT",
+    "RADUSDT",
+    "SNTUSDT",
+    "STPTUSDT"
+   ],
+   "times_ms": [
+    1714991400000,
+    1715589000000,
+    1715590800000,
+    1715675400000,
+    1715677200000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M STPTUSDT, SNTUSDT, MBLUSDT, RADUSDT and CVXUSDT Perpetual Contracts"
+  },
+  {
+   "code": "cb525a5fbb954935afc77630fc5bd0cc",
+   "latest_ms": 1715850000000,
+   "ms": 1715144426574,
+   "symbols": [
+    "AUDIOUSDT",
+    "GLMRUSDT",
+    "IDEXUSDT",
+    "MDTUSDT",
+    "SLPUSDT"
+   ],
+   "times_ms": [
+    1715164200000,
+    1715761800000,
+    1715763600000,
+    1715848200000,
+    1715850000000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M IDEXUSDT, SLPUSDT, GLMRUSDT, MDTUSDT and AUDIOUSDT Perpetual Contracts"
+  },
+  {
+   "code": "5150d4f0ee1546d7ae6382ba7cda3ffe",
+   "latest_ms": 1716282000000,
+   "ms": 1715330951658,
+   "symbols": [],
+   "times_ms": [
+    1715337000000,
+    1716193800000,
+    1716195600000,
+    1716280200000,
+    1716282000000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of COIN-M KNCUSD, ICXUSD, XTZUSD, ROSEUSD and APEUSD Perpetual Contracts"
+  },
+  {
+   "code": "cfe97d52a8c840d3ba631835b637e9e7",
+   "latest_ms": 1733734800000,
+   "ms": 1732852801809,
+   "symbols": [
+    "LOOMUSDT",
+    "ORBSUSDT",
+    "XEMUSDT"
+   ],
+   "times_ms": [
+    1733733000000,
+    1733734800000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M XEMUSDT, ORBSUSDT and LOOMUSDT Perpetual Contracts (2024-12-09)"
+  },
+  {
+   "code": "27eac260521b4f40ab331e1a345887a7",
+   "latest_ms": 1734339600000,
+   "ms": 1733454004185,
+   "symbols": [
+    "BONDUSDT",
+    "MAVIAUSDT",
+    "OMGUSDT"
+   ],
+   "times_ms": [
+    1734337800000,
+    1734339600000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M MAVIAUSDT, OMGUSDT, and BONDUSDT Perpetual Contracts (2024-12-16)"
+  },
+  {
+   "code": "572715f2d96e47769ebbb967c2a6e445",
+   "latest_ms": 1737536400000,
+   "ms": 1736928006723,
+   "symbols": [
+    "REEFUSDT"
+   ],
+   "times_ms": [
+    1736926200000,
+    1737534600000,
+    1737536400000
+   ],
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USD\u24c8-M REEFUSDT Perpetual Contract (2025-01-22)"
+  },
+  {
+   "code": "21e399dcea734230a3c181daf5407b64",
+   "latest_ms": 1754902800000,
+   "ms": 1754465406291,
+   "symbols": [
+    "DEFIUSDT"
+   ],
+   "times_ms": [
+    1754901000000,
+    1754902800000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M DEFIUSDT and MEMEFI Perpetual Contracts (2025-08-11)"
+  },
+  {
+   "code": "d5fc5fdda5c74e3e8780050ed0841267",
+   "latest_ms": 1756890000000,
+   "ms": 1756465212480,
+   "symbols": [
+    "LEVERUSDT"
+   ],
+   "times_ms": [
+    1756888200000,
+    1756890000000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M LEVERUSDT Perpetual Contract (2025-09-03)"
+  },
+  {
+   "code": "c95b56efd290471ba11c6cb850208d07",
+   "latest_ms": 1757926800000,
+   "ms": 1757499283992,
+   "symbols": [
+    "BSWUSDT"
+   ],
+   "times_ms": [
+    1757925000000,
+    1757926800000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M BSWUSDT Perpetual Contract (2025-09-15)"
+  },
+  {
+   "code": "10fd115c29244067bd4566a70f77e327",
+   "latest_ms": 1758618000000,
+   "ms": 1758098727976,
+   "symbols": [
+    "ALPHAUSDT"
+   ],
+   "times_ms": [
+    1758616200000,
+    1758618000000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M ALPHAUSDT Perpetual Contract (2025-09-23)"
+  },
+  {
+   "code": "77d088eda9b040dc9f73bb7e57ae8e26",
+   "latest_ms": 1758877200000,
+   "ms": 1758526202610,
+   "symbols": [
+    "NEIROETHUSDT"
+   ],
+   "times_ms": [
+    1758875400000,
+    1758877200000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M NEIROETHUSDT Perpetual Contract (2025-09-26)"
+  },
+  {
+   "code": "5a4fddd83a25401cabc2ae6271b532a2",
+   "latest_ms": 1758877200000,
+   "ms": 1758715205980,
+   "symbols": [
+    "UXLINKUSDT"
+   ],
+   "times_ms": [
+    1758875400000,
+    1758877200000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M UXLINKUSDT Perpetual Contract (2025-09-26)"
+  },
+  {
+   "code": "82df1b55a0d84c288fa396d5a5cead48",
+   "latest_ms": 1759482000000,
+   "ms": 1759146319511,
+   "symbols": [
+    "BAKEUSDT",
+    "HIFIUSDT"
+   ],
+   "times_ms": [
+    1759480200000,
+    1759482000000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M HIFIUSDT and BAKEUSDT Perpetual Contracts (2025-10-03)"
+  },
+  {
+   "code": "c045753243994cfcba6a22563389e910",
+   "latest_ms": 1761040800000,
+   "ms": 1760759930952,
+   "symbols": [
+    "SLERFUSDT"
+   ],
+   "times_ms": [
+    1760787000000,
+    1760855400000,
+    1760949000000,
+    1760950800000,
+    1761039000000,
+    1761040800000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M SLERFUSDT and COIN-M CHZUSD Perpetual Contracts (2025-10-20 & 2025-10-21)"
+  },
+  {
+   "code": "fe8c53fbe54540b88cff9caa193ffd60",
+   "latest_ms": 1761642000000,
+   "ms": 1761219095905,
+   "symbols": [],
+   "times_ms": [
+    1761640200000,
+    1761642000000
+   ],
+   "title": "Binance Futures Will Delist COIN-M GMTUSD and DOGSUSD Perpetual Contracts (2025-10-28)"
+  },
+  {
+   "code": "ebe57975b8c34e928c7d3fdacfcef32a",
+   "latest_ms": 1762506000000,
+   "ms": 1762137028085,
+   "symbols": [
+    "KDAUSDT"
+   ],
+   "times_ms": [
+    1762417800000,
+    1762419600000,
+    1762504200000,
+    1762506000000
+   ],
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts"
+  },
+  {
+   "code": "f73071bd329f4a31ba0218ac675bea67",
+   "latest_ms": 1763024400000,
+   "ms": 1762507832708,
+   "symbols": [],
+   "times_ms": [
+    1763022600000,
+    1763024400000
+   ],
+   "title": "Binance Futures Will Delist COIN-M MANAUSD and EGLDUSD Perpetual Contracts (2025-11-13)"
+  },
+  {
+   "code": "869c1c15564048e29ae6139578637cd4",
+   "latest_ms": 1763110800000,
+   "ms": 1762782300002,
+   "symbols": [
+    "1000XUSDT",
+    "MYROUSDT"
+   ],
+   "times_ms": [
+    1763109000000,
+    1763110800000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M MYROUSDT and 1000XUSDT Perpetual Contracts (2025-11-14)"
+  },
+  {
+   "code": "4e11bae0efbb4811842ff1b2d37d1389",
+   "latest_ms": 1763542800000,
+   "ms": 1763105419907,
+   "symbols": [],
+   "times_ms": [
+    1763541000000,
+    1763542800000
+   ],
+   "title": "Binance Futures Will Delist COIN-M RUNEUSD Perpetual Contract (2025-11-19)"
+  },
+  {
+   "code": "6392491d998b4cbaa6d4beee0fd898c6",
+   "latest_ms": 1763715600000,
+   "ms": 1763438473736,
+   "symbols": [
+    "FLMUSDT",
+    "PERPUSDT",
+    "XCNUSDT"
+   ],
+   "times_ms": [
+    1763713800000,
+    1763715600000
+   ],
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2025-11-21)"
+  },
+  {
+   "code": "aa3cc74779bf456e8b100304905b9cc2",
+   "latest_ms": 1763879400000,
+   "ms": 1763877454108,
+   "symbols": [
+    "PORT3USDT"
+   ],
+   "times_ms": [
+    1763877600000,
+    1763879400000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M PORT3USDT Perpetual Contract (2025-11-23)"
+  },
+  {
+   "code": "53998d26b57f47beb97811ec9f5e582b",
+   "latest_ms": 1764320400000,
+   "ms": 1763991911669,
+   "symbols": [
+    "PONKEUSDT",
+    "QUICKUSDT",
+    "SWELLUSDT"
+   ],
+   "times_ms": [
+    1764318600000,
+    1764320400000
+   ],
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2025-11-28)"
+  },
+  {
+   "code": "746056ce732d43dda12c1e5ae1b7a059",
+   "latest_ms": 1764927000000,
+   "ms": 1764576863757,
+   "symbols": [
+    "MILKUSDT",
+    "OBOLUSDT",
+    "SXPUSDT",
+    "TOKENUSDT"
+   ],
+   "times_ms": [
+    1764923400000,
+    1764925200000,
+    1764927000000
+   ],
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2025-12-05)"
+  },
+  {
+   "code": "7621c0ff8a924305b6e8fe78ce2c7fcd",
+   "latest_ms": 1765357200000,
+   "ms": 1764930770574,
+   "symbols": [
+    "FISUSDT",
+    "REIUSDT",
+    "SKATEUSDT",
+    "VOXELUSDT"
+   ],
+   "times_ms": [
+    1765355400000,
+    1765357200000
+   ],
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2025-12-10)"
+  },
+  {
+   "code": "20eee4109e06448992f0557bf798bb36",
+   "latest_ms": 1765455300000,
+   "ms": 1765453426582,
+   "symbols": [
+    "AIAUSDT"
+   ],
+   "times_ms": [
+    1765453500000,
+    1765455300000
+   ],
+   "title": "Binance Futures Will Delist AIAUSDT USD\u24c8-M Perpetual Contract (2025-12-11)"
+  },
+  {
+   "code": "5798be852fb5449bb438dde4166126dc",
+   "latest_ms": 1768986000000,
+   "ms": 1768636591216,
+   "symbols": [
+    "BIDUSDT",
+    "DMCUSDT",
+    "TANSSIUSDT",
+    "ZRCUSDT"
+   ],
+   "times_ms": [
+    1768984200000,
+    1768986000000
+   ],
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2026-01-21)"
+  },
+  {
+   "code": "79211335d1de4f7589ad2d8780580970",
+   "latest_ms": 1769763600000,
+   "ms": 1769595249706,
+   "symbols": [
+    "42USDT",
+    "COMMONUSDT",
+    "CUDISUSDT",
+    "EPTUSDT"
+   ],
+   "times_ms": [
+    1769761800000,
+    1769763600000
+   ],
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2026-01-30)"
+  },
+  {
+   "code": "9ac36fb4f2ad4bf2b3b27f9c9224739c",
+   "latest_ms": 1770714000000,
+   "ms": 1770275659503,
+   "symbols": [
+    "RVVUSDT",
+    "YALAUSDT"
+   ],
+   "times_ms": [
+    1770710400000,
+    1770714000000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M RVVUSDT and YALAUSDT Perpetual Contracts (2026-02-10)"
+  },
+  {
+   "code": "f6ebc17e4dbd451b873d9ef25c801237",
+   "latest_ms": 1773824400000,
+   "ms": 1773411259653,
+   "symbols": [
+    "1000WHYUSDT",
+    "BDXNUSDT",
+    "VFYUSDT"
+   ],
+   "times_ms": [
+    1773736200000,
+    1773738000000,
+    1773822600000,
+    1773824400000
+   ],
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M and COIN-M Perpetual Contracts (2026-03-17 & 2026-03-18)"
+  },
+  {
+   "code": "48f99309fd5442d7b44491c76483223e",
+   "latest_ms": 1774429200000,
+   "ms": 1774016064610,
+   "symbols": [],
+   "times_ms": [
+    1774427400000,
+    1774429200000
+   ],
+   "title": "Binance Futures Will Delist COIN-M APTUSD and OPUSD Perpetual Contracts (2026-03-25)"
+  },
+  {
+   "code": "97b4f3a7d02a486c8d412ada2281b907",
+   "latest_ms": 1775725200000,
+   "ms": 1775224771078,
+   "symbols": [
+    "HIPPOUSDT",
+    "OLUSDT",
+    "PUFFERUSDT",
+    "RLSUSDT"
+   ],
+   "times_ms": [
+    1775637000000,
+    1775638800000,
+    1775723400000,
+    1775725200000
+   ],
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2026-04-08 & 2026-04-09)"
+  },
+  {
+   "code": "1d2b6970facd470dbba6a674e1595bd4",
+   "latest_ms": 1777453200000,
+   "ms": 1776956437768,
+   "symbols": [
+    "B3USDT",
+    "BOBUSDT",
+    "DAMUSDT",
+    "DEGENUSDT",
+    "IRUSDT",
+    "ZKJUSDT"
+   ],
+   "times_ms": [
+    1777365000000,
+    1777366800000,
+    1777451400000,
+    1777453200000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M Multiple Perpetual Contracts (2026-04-28 & 2026-04-29)"
+  },
+  {
+   "code": "ba5d61807b474b0ca9f40250e7fa782c",
+   "latest_ms": 1777370400000,
+   "ms": 1777029313345,
+   "symbols": [
+    "AIUSDT",
+    "VINEUSDT"
+   ],
+   "times_ms": [
+    1777368600000,
+    1777370400000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M Multiple Perpetual Contracts (2026-04-28)"
+  },
+  {
+   "code": "5702f93568604ea7bfd2f4233f054bd1",
+   "latest_ms": 1782637200000,
+   "ms": 1782406806669,
+   "symbols": [
+    "IPUSDT"
+   ],
+   "times_ms": [
+    1782635400000,
+    1782637200000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-Margined IPUSDT and IPUSDC Perpetual Contracts (2026-06-28)"
+  },
+  {
+   "code": "f0e3fc835b9545759e4279c64b200389",
+   "latest_ms": 1784874600000,
+   "ms": 1784643314244,
+   "symbols": [
+    "AERGOUSDT"
+   ],
+   "times_ms": [
+    1784872800000,
+    1784874600000
+   ],
+   "title": "Binance Futures Will Delist USD\u24c8-M AERGOUSDT Perpetual Contract (2026-07-24)"
+  },
+  {
+   "code": "2f1a743334f044abbd82e34093c7b771",
+   "latest_ms": 1791190800000,
+   "ms": 1790822713435,
+   "symbols": [
+    "1000000BOBUSDT",
+    "PROMPTUSDT",
+    "PUMPBTCUSDT"
+   ],
+   "times_ms": [
+    1791189000000,
+    1791190800000
+   ],
+   "title": "Binance Futures Will Delist Multiple USD\u24c8-M Perpetual Contracts (2026-10-05)"
+  },
+  {
+   "code": "c30e6891afa54651ba950f8af144f861",
+   "latest_ms": 1792746000000,
+   "ms": 1792575001882,
+   "symbols": [
+    "MITOUSDT",
+    "PTBUSDT"
+   ],
+   "times_ms": [
+    1792575000000,
+    1792744200000,
+    1792746000000
+   ],
+   "title": "Binance Futures Will Delist PTBUSDT and MITOUSDT USD\u24c8-M Perpetual Contracts (2026-10-23)"
+  }
+ ],
+ "meta": {
+  "articles": 4947,
+  "catalogs": {
+   "161": {
+    "articles": 446,
+    "cap": 12,
+    "cap_hit": false,
+    "newest_ms": 1793089800000,
+    "oldest_ms": 1645069676026,
+    "pages": 9
+   },
+   "49": {
+    "articles": 4501,
+    "cap": 95,
+    "cap_hit": false,
+    "newest_ms": 1794569412447,
+    "oldest_ms": 1498975392000,
+    "pages": 91
+   }
+  },
+  "delist_notices": 39,
+  "freeze_ms": 1794528000000,
+  "from_ms": 1640995200000,
+  "intro_body_text_sha256": "61708123240b4e3809122f39428038066b2e680df97ace7c3764d3056c8fbe20",
+  "intro_code": "b0f241491d0e4d75aa2f8752b7bf8af5",
+  "scan_utc": "2026-11-13T18:44:43Z",
+  "tag_notices": 27,
+  "unclassified_titles": 0
+ }
+}
