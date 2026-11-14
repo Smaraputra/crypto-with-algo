@@ -1,0 +1,20 @@
+{
+ "fold_manifest_sha256": "f95f46b0d73ccbef2c4a6a48adb125a180dadf321f13ac4b73f27b707f2f9924",
+ "fold_trades_sha256": "5c26b9ac2eaf5d8462c32353c760480fc1b88350c5fb97162faf192d4e7461e4",
+ "funding_files_sha256": "5df11a483b359d07116e2cea34632d3c7dd018bd420eba57e4a24bd733856c68",
+ "funding_manifest_sha256": "9c82197a15a2775f7035b822571e8fe0eb7e11619724e3b2e6b645b0359cae4b",
+ "ledger_id": "horizon-l1",
+ "lighter_lock_sha256": "9e2d9176442d05a1596d6f661286be3f2a90d95ed23987c5b72ce9a2b41a8e87",
+ "liq_manifest_sha256": "b77c575a0fe3e7ceeeaad859e981f65249211368dc839065c5c3ec7ca546366e",
+ "lock_digest": "f43d62d0c716e756ae7fd6dc5b26a9a35ce0243e07e32928d60efa6c83668d39",
+ "markets_sha256": "554d7a4d357a9d030734f1925d95857d95ced4604a8a331ade10e5f405fb1faa",
+ "owner_signature": {
+  "code_commit": "d4d4fa13391faa8111e9089f5ff40528254bd33c",
+  "date": "2026-11-14",
+  "how": "answered 'Sign as written' to the signature question in the Claude Code chat (2026-11-14), after the plain-language summary of the lock",
+  "lock_digest": "f43d62d0c716e756ae7fd6dc5b26a9a35ce0243e07e32928d60efa6c83668d39",
+  "prediction": "see PREDICTION in lock.py (a digest-covered constant), registered before any return"
+ },
+ "panel_manifest_sha256": "077f8aac24d0774f47315f5f93d7863aea18726892d802c09cd3cdad636d79d6",
+ "registered_utc": "2026-11-14T13:06:25Z"
+}

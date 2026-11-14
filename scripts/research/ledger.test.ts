@@ -4,8 +4,8 @@ import { LAB_FORWARD_V1_LOCK } from './lab-forward-v1';
 import { LEDGER, ledgerTotal } from './ledger';
 
 describe('ledger', () => {
-  it('returns the running total, 4491 after the horizon-e1 lock', () => {
-    expect(ledgerTotal()).toBe(4491);
+  it('returns the running total, 4497 after the horizon-l1 lock', () => {
+    expect(ledgerTotal()).toBe(4497);
   });
 
   it('counts Round 1 and Round 2 separately', () => {
@@ -26,6 +26,7 @@ describe('ledger', () => {
     expect(ledgerTotal('venue-spread-locked-read')).toBe(2423);
     expect(ledgerTotal('lighter-l1')).toBe(4487);
     expect(ledgerTotal('horizon-e1')).toBe(4491);
+    expect(ledgerTotal('horizon-l1')).toBe(4497);
   });
 
   it('matches baseline trials to LAB_FORWARD_V1_LOCK.ledgerAfter', () => {
