@@ -105,6 +105,7 @@ def fold_day(raw_path: Path, day: dt.date) -> tuple[pa.Table, dict[str, Any]]:
     rows_by_trade_type: dict[str, int] = {}
     liquidation_rows = 0
     rows_side_inconsistent = 0
+    rows_side_unchecked = 0
     liq_micro_total = 0
     sums: pd.DataFrame | None = None
 
@@ -157,16 +158,21 @@ def fold_day(raw_path: Path, day: dt.date) -> tuple[pa.Table, dict[str, Any]]:
             raise ft.FoldError("is_maker_ask is null on a liquidation row")
         is_maker_ask = pc.fill_null(maker_ask_col, False).to_numpy(zero_copy_only=False).astype(bool)[is_liq]
 
+        # The forced side comes from is_maker_ask alone. taker_position_size_before only cross-checks it, and early
+        # archive days have it null (the column was added later), so a null row is counted as unchecked, not dropped.
         pos_col = batch.column("taker_position_size_before")
-        if pos_col.null_count and bool(np.any(is_liq & pos_col.is_null().to_numpy(zero_copy_only=False))):
-            raise ft.FoldError("taker_position_size_before is null on a liquidation row")
-        taker_pos = pos_col.to_numpy(zero_copy_only=False).astype(np.int64)[is_liq]
+        if pos_col.null_count:
+            pos_null = pos_col.is_null().to_numpy(zero_copy_only=False).astype(bool)[is_liq]
+        else:
+            pos_null = np.zeros(n_liq, dtype=bool)
+        taker_pos = pc.fill_null(pos_col, 0).to_numpy(zero_copy_only=False).astype(np.int64)[is_liq]
 
         # Side check: forced buy with taker_pos >= 0 or forced sell with taker_pos <= 0 is inconsistent.
         buy_inconsistent = is_maker_ask & (taker_pos >= 0)
         sell_inconsistent = (~is_maker_ask) & (taker_pos <= 0)
-        inconsistent = buy_inconsistent | sell_inconsistent
+        inconsistent = (buy_inconsistent | sell_inconsistent) & ~pos_null
         rows_side_inconsistent += int(np.count_nonzero(inconsistent))
+        rows_side_unchecked += int(np.count_nonzero(pos_null))
 
         liq_micro_total += int(liq_usdc.sum(dtype=np.int64))
 
@@ -225,6 +231,7 @@ def fold_day(raw_path: Path, day: dt.date) -> tuple[pa.Table, dict[str, Any]]:
         "rows_by_trade_type": dict(sorted(rows_by_trade_type.items())),
         "liquidation_rows": liquidation_rows,
         "rows_side_inconsistent": rows_side_inconsistent,
+        "rows_side_unchecked": rows_side_unchecked,
         "rows_outside_day": 0,
         "output_rows": table.num_rows,
         "liq_usd_total": float(liq_micro_total / ft.MICRO),
@@ -288,6 +295,7 @@ def run(
                 "rows_by_trade_type": stats["rows_by_trade_type"],
                 "liquidation_rows": stats["liquidation_rows"],
                 "rows_side_inconsistent": stats["rows_side_inconsistent"],
+                "rows_side_unchecked": stats["rows_side_unchecked"],
                 "rows_outside_day": stats["rows_outside_day"],
                 "output_rows": stats["output_rows"],
                 "output_sha256": ft.sha256_file(out_file),

@@ -324,3 +324,32 @@ def test_exactness_micro_usd_sum(tmp_path: Path) -> None:
     assert table["n_liq_sell"][0].as_py() == 2
 
     assert stats["liq_usd_total"] == 1.000003
+
+
+def test_null_position_is_counted_unchecked_not_fatal(tmp_path: Path) -> None:
+    """Early archive days have taker_position_size_before null: the side still comes from is_maker_ask."""
+    rows = [
+        make_row(D0 + 1000, usdc_amount=2_000_000, is_maker_ask=False, taker_position_size_before=40),
+        make_row(D0 + 2000, usdc_amount=3_000_000, is_maker_ask=True, taker_position_size_before=-5),
+        make_row(D0 + 3000, usdc_amount=5_000_000, is_maker_ask=False, taker_position_size_before=0),
+    ]
+    path = write_raw(tmp_path / "raw.parquet", rows)
+    table = pq.read_table(path).to_pylist()
+    for i in (0, 1):
+        table[i]["taker_position_size_before"] = None
+    schema = pa.schema(
+        [
+            (name, pa.int64() if name == "taker_position_size_before" else typ)
+            for name, typ in zip(pq.read_schema(path).names, pq.read_schema(path).types, strict=True)
+        ]
+    )
+    pq.write_table(pa.Table.from_pylist(table, schema=schema), path)
+
+    out, stats = fold_liq.fold_day(path, DAY)
+    assert stats["rows_side_unchecked"] == 2
+    assert stats["rows_side_inconsistent"] == 1  # the third row: a forced sell with taker position 0 is inconsistent
+    assert stats["liquidation_rows"] == 3
+    row = out.to_pylist()[0]
+    assert row["liq_sell_usd"] == pytest.approx(7.0, abs=1e-12)
+    assert row["liq_buy_usd"] == pytest.approx(3.0, abs=1e-12)
+    assert (row["n_liq_sell"], row["n_liq_buy"]) == (2, 1)
