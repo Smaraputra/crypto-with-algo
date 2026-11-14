@@ -63,8 +63,10 @@ no synthetic flag). The commands panel, register-check and event-count compute n
    must have a manifest line of the expected version with a matching file sha256, else the run stops. The command
    panel rewrites the fold into one file per market (the columns above, the span only, a derived copy with no new
    information) and checks the price scale: any jump between consecutive printed minutes of a market with |ln(last_px
-   ratio)| above ln 5 is listed, and the run stops on any listed jump not named in the tuple KNOWN_SCALE_JUMPS (empty,
-   to be fixed from the panel output before registration and before any return is computed).
+   ratio)| above ln 5 is listed, and the run stops on any listed jump not named in the tuple KNOWN_SCALE_JUMPS. The
+   panel output (530 days, 206 markets, 53,857,421 rows) listed nine jumps, all in three SPOT markets that the study
+   never reads (2052 AAVE/USDC, 2054 LDO/USDC, 2055 AZTEC/USDC) and none in any perp market, so those nine are named
+   in the tuple (market id and minute start, as listed) before any return is computed.
 
 2. BURSTS (events). Per market and per side separately, minutes with liquidation volume of that side are merged into a
    burst when two consecutive such minutes have starts at most BURST_GAP_MS = 300,000 ms apart. A burst has a start
@@ -233,7 +235,18 @@ SP_MIN_PAIRS = 200
 ACTIVITY_WINDOW_MIN = 1_440
 ACTIVITY_MIN_ACTIVE_MIN = 360
 SCALE_JUMP_LN = 1.6094379124341003  # ln 5
-KNOWN_SCALE_JUMPS: tuple[tuple[int, int], ...] = ()  # (market_id, minute start in ms), fixed from the panel output
+# (market_id, minute start in ms), fixed from the panel output of 2026-11-14: nine jumps, all in spot markets
+KNOWN_SCALE_JUMPS: tuple[tuple[int, int], ...] = (
+    (2052, 1_770_944_400_000),
+    (2052, 1_770_944_460_000),
+    (2052, 1_770_944_640_000),
+    (2054, 1_776_354_120_000),
+    (2054, 1_776_356_520_000),
+    (2055, 1_771_584_900_000),
+    (2055, 1_771_585_020_000),
+    (2055, 1_771_592_640_000),
+    (2055, 1_771_596_720_000),
+)
 
 CONTROLS_PER_EVENT = 5
 CONTROLS_MIN = 3
