@@ -120,22 +120,24 @@ no synthetic flag). The commands panel, register-check and event-count compute n
    cluster's value is the equal-weight mean of the trade returns of its events. Statistics use clusters.
 
 6. THE SIX TRIALS. Trial ids S-30, S-60, S-120, B-30, B-60, B-120 (side x exit offset). For each, the statistic is the
-   mean of cluster values. A trial PASSES only if ALL of these hold: (a) the mean is at least PASS_MIN_MEAN = 0.0005 (5
-   basis points a trade); (b) the lower bound is above PASS_MIN_BOUND = 0.00013 (1.3 basis points), where the bound is
-   the smaller of the bootstrap bound and the t bound, both one-sided at TRIAL_ALPHA = 0.05 / 6, the bootstrap using
-   numpy.random.default_rng(BOOT_SEED), one generator for the six trials in TRIAL_IDS order, each trial drawing
+   mean of cluster values. A trial PASSES only if ALL of these hold: (a) the mean is at least PASS_MIN_MEAN = 0.0005
+   (5 basis points a trade); (b) the lower bound is above PASS_MIN_BOUND = 0.00013 (1.3 basis points), where the bound
+   is the smaller of the bootstrap bound and the t bound, both one-sided at TRIAL_ALPHA = 0.05 / 6, the bootstrap
+   using numpy.random.default_rng(BOOT_SEED), one generator for the six trials in TRIAL_IDS order, each trial drawing
    rng.integers(0, max(n, 1), size=(BOOT_RESAMPLES = 10,000, max(n, 1))) (every trial draws, and n below 2 gives a NaN
    bound), numpy.quantile(method="linear"), and the t bound being mean - t.ppf(1 - TRIAL_ALPHA, n - 1) x s / sqrt(n)
    with ddof 1; (c) the number of clusters is at least MIN_CLUSTERS = 30; (d) per trial, the share of eligible events
    lost to a missing entry fill is at most MAX_EXCLUDED_SHARE = 10% (events lost for the span end or for the retrigger
    rule are not eligible events and are not counted here). The leave-one-out clause of the e1 lock is not used, it is
-   implied by (a) and (b). The plan's kill line for this test was a lower bound under 1.3 basis points; (a), (c) and (d)
-   are the lead's additions. Power: with about 400 day clusters and a cluster standard deviation of 100 basis points,
-   the smallest mean that clears (b) is about 13 basis points, which is above the paper's own gross 12.4, so clause (b)
-   and not clause (a) is the likely binding one and a pass needs an effect larger than the paper's. Passing none of the
-   trials is a result: the idea is closed for tier 2 and no part of it is rerun with other settings. A pass makes the
-   liquidation reversal eligible for gate G0 of the tier 2 plan, which still needs the fill probe (G3), the owner's
-   gates and the confirmation read of rule 11.
+   implied by (a) and (b). The plan's kill line for this test was a lower bound under 1.3 basis points; (a), (c) and
+   (d) are the lead's additions. Power: the return-free event count of 2026-11-14 found 1,896 eligible forced-sell
+   events on 398 days and 1,157 eligible forced-buy events on 339 days (ETH, BTC and HYPE carry 70% of the forced
+   sells, and October 2025 has the most events). With about 400 day clusters and a cluster standard deviation of 100
+   basis points, the smallest mean that clears (b) is about 13 basis points, which is above the paper's own gross
+   12.4, so clause (b) and not clause (a) is the likely binding one and a pass needs an effect larger than the
+   paper's. Passing none of the trials is a result: the idea is closed for tier 2 and no part of it is rerun with
+   other settings. A pass makes the liquidation reversal eligible for gate G0 of the tier 2 plan, which still needs
+   the fill probe (G3), the owner's gates and the confirmation read of rule 11.
 
 7. REPORTED, NOT JUDGED (descriptive, no trial, cannot rescue a failed trial). For every trial: the numbers of bursts,
    candidates, events, eligible events, events with an entry fill, markets and clusters with the exclusion reasons; the
