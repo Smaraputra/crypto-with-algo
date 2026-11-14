@@ -78,9 +78,10 @@ commands panel, register-check and event-count compute no return.
 
 3. ELIGIBILITY AT THE DECISION TIME D (market type perp, point in time). The 1,440 minutes before D contain at least 360
    minutes with buy_usd + sell_usd above zero, and the market has a spread proxy (rule 4) from at least SP_MIN_PAIRS =
-   200 qualifying minutes in the 7 days before D. An event failing this is excluded by reason and counted in clause (d)
-   of rule 6. The scope is all perp markets in markets.json (crypto, traditional-market and unclassified symbols),
-   judged together; the result is also reported by the symbol classes of lighter/lock.py.
+   200 qualifying minutes in the 7 days before D. An event failing this is excluded and counted by reason in the report,
+   not in clause (d) of rule 6 (which covers eligible events only). The scope is all perp markets in markets.json
+   (crypto, traditional-market and unclassified symbols), judged together; the result is also reported by the symbol
+   classes of lighter/lock.py.
 
 4. TRADE AND FILLS. An order is a taker order sent at a minute boundary t. It fills at the first print of EITHER side
    with timestamp at or after t + 500 ms. An ENTRY searches the minute starting at t only; with no such print the event
