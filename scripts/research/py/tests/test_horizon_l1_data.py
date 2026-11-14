@@ -647,7 +647,8 @@ def test_store_guards(tmp_path: Path) -> None:
             },
         ],
     )
-    with pytest.raises(data_mod.DataError, match="2025-01-17"):
+    # one inconsistent row against zero liquidation rows: the share is undefined, so the run stops
+    with pytest.raises(data_mod.DataError, match="rows_side_inconsistent"):
         data_mod.Store(fold_dir, panel_dir, liq_dir, funding_dir)
 
     # 6. Liquidation line dated after lock.HARD_LAST_DATE (ignored, not opened)
@@ -878,6 +879,8 @@ def test_liq_summary_and_files_read(tmp_path: Path) -> None:
     assert summary["rows_side_inconsistent"] == 0
     assert summary["rows_side_unchecked"] == 60
     assert summary["liquidation_rows"] == 25
+    assert summary["days_with_inconsistent"] == []
+    assert summary["inconsistent_share"] == 0.0
 
     files = store.files_read()
     assert "fold/markets.json" in files
@@ -1140,3 +1143,66 @@ def test_funding_files_digest_unit(tmp_path: Path) -> None:
     f1.write_bytes(b"content_x")
     digest_changed = funding_files_digest(fdir)
     assert digest_changed != digest_1
+
+
+def _build_liq_world(tmp_path: Path, per_day: list[tuple[int, int]]) -> tuple[Path, Path, Path, Path]:
+    """Three-day world whose liquidation manifest carries (rows_side_inconsistent, liquidation_rows) per day."""
+    fold_dir = tmp_path / "fold"
+    panel_dir = tmp_path / "panel"
+    liq_dir = tmp_path / "liq"
+    funding_dir = tmp_path / "funding"
+    make_markets_json(fold_dir / "markets.json", [{"market_id": 1, "symbol": "BTC", "market_type": "perp"}])
+    dates = ["2025-01-17", "2025-01-18", "2025-01-19"]
+    fold_lines = []
+    liq_lines = []
+    for date, (inconsistent, liq_rows) in zip(dates, per_day, strict=True):
+        _, fold_sha = make_fold_day(fold_dir / "v1" / f"date={date}.parquet", [])
+        fold_lines.append({"date": date, "fold_version": "v1", "output_sha256": fold_sha, "output_rows": 0})
+        _, liq_sha = make_liq_day(liq_dir / "v1" / f"date={date}.parquet", [])
+        liq_lines.append(
+            {
+                "date": date,
+                "fold_version": "l1v1",
+                "output_sha256": liq_sha,
+                "rows_side_inconsistent": inconsistent,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": liq_rows,
+            }
+        )
+    write_manifest_lines(fold_dir / "manifest.jsonl", fold_lines)
+    panel.build_panel(fold_dir, panel_dir)
+    write_manifest_lines(liq_dir / "manifest.jsonl", liq_lines)
+    write_manifest_lines(funding_dir / "manifest.jsonl", [])
+    return fold_dir, panel_dir, liq_dir, funding_dir
+
+
+def test_inconsistent_share_under_limit_loads_and_is_reported(tmp_path: Path) -> None:
+    """One inconsistent row in 10,000 (0.01%) is under MAX_INCONSISTENT_SHARE and is reported by day."""
+    dirs = _build_liq_world(tmp_path, [(1, 10_000), (0, 0), (0, 0)])
+    store = data_mod.Store(*dirs)
+    summary = store.liq_summary()
+    assert summary["rows_side_inconsistent"] == 1
+    assert summary["liquidation_rows"] == 10_000
+    assert summary["days_with_inconsistent"] == ["2025-01-17"]
+    assert summary["inconsistent_share"] == pytest.approx(1 / 10_000)
+
+
+def test_inconsistent_share_exactly_at_limit_loads(tmp_path: Path) -> None:
+    """10 in 10,000 is exactly 0.001: only a share greater than the limit stops the run."""
+    dirs = _build_liq_world(tmp_path, [(10, 10_000), (0, 0), (0, 0)])
+    store = data_mod.Store(*dirs)
+    assert store.liq_summary()["inconsistent_share"] == pytest.approx(0.001)
+
+
+def test_inconsistent_share_over_limit_raises(tmp_path: Path) -> None:
+    """20 in 10,000 is 0.2%, above the 0.1% limit."""
+    dirs = _build_liq_world(tmp_path, [(20, 10_000), (0, 0), (0, 0)])
+    with pytest.raises(data_mod.DataError, match="rows_side_inconsistent 20 of 10000"):
+        data_mod.Store(*dirs)
+
+
+def test_inconsistent_rows_without_liquidation_rows_raise(tmp_path: Path) -> None:
+    """A share of zero liquidation rows is undefined, so any inconsistent row stops the run."""
+    dirs = _build_liq_world(tmp_path, [(1, 0), (0, 0), (0, 0)])
+    with pytest.raises(data_mod.DataError, match="rows_side_inconsistent 1 of 0"):
+        data_mod.Store(*dirs)

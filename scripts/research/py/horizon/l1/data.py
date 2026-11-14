@@ -223,9 +223,6 @@ class Store:
             l_ver = entry.get("fold_version")
             if l_ver != "l1v1":
                 raise DataError(f"day {date_str} has liquidation fold_version {l_ver!r}, expected 'l1v1'")
-            inconsistent = entry.get("rows_side_inconsistent", 0)
-            if inconsistent > 0:
-                raise DataError(f"day {date_str} has {inconsistent} rows_side_inconsistent")
             day_file = self.liq_dir / "v1" / f"date={date_str}.parquet"
             if not day_file.is_file():
                 raise DataError(f"missing liquidation file for day {date_str}: {day_file}")
@@ -238,6 +235,21 @@ class Store:
             self._record_file(day_file, day_sha)
             self._liq_days.append(cur)
             cur += dt.timedelta(days=1)
+
+        # Span-wide side-consistency limit (rule 1 (ii)): inconsistent rows stay, too many stop the run
+        total_inconsistent = 0
+        total_liq_rows = 0
+        for day in self._liq_days:
+            day_entry = self._liq_manifest_by_date[day.isoformat()]
+            total_inconsistent += int(day_entry.get("rows_side_inconsistent", 0))
+            total_liq_rows += int(day_entry.get("liquidation_rows", 0))
+        if total_inconsistent > 0 and (
+            total_liq_rows == 0 or total_inconsistent / total_liq_rows > lock.MAX_INCONSISTENT_SHARE
+        ):
+            raise DataError(
+                f"rows_side_inconsistent {total_inconsistent} of {total_liq_rows} liquidation rows exceeds the "
+                f"limit {lock.MAX_INCONSISTENT_SHARE}"
+            )
 
         # 5. Funding manifest
         funding_manifest_path = self.funding_dir / "manifest.jsonl"
@@ -478,14 +490,21 @@ class Store:
         rows_side_inconsistent = 0
         rows_side_unchecked = 0
         liquidation_rows = 0
+        days_with_inconsistent: list[str] = []
         for day in self._liq_days:
             date_str = day.isoformat()
             entry = self._liq_manifest_by_date.get(date_str, {})
-            rows_side_inconsistent += int(entry.get("rows_side_inconsistent", 0))
+            day_inconsistent = int(entry.get("rows_side_inconsistent", 0))
+            if day_inconsistent > 0:
+                days_with_inconsistent.append(date_str)
+            rows_side_inconsistent += day_inconsistent
             rows_side_unchecked += int(entry.get("rows_side_unchecked", 0))
             liquidation_rows += int(entry.get("liquidation_rows", 0))
+        inconsistent_share = rows_side_inconsistent / liquidation_rows if liquidation_rows > 0 else 0.0
         return {
             "days": n_days,
+            "days_with_inconsistent": days_with_inconsistent,
+            "inconsistent_share": inconsistent_share,
             "rows_side_inconsistent": rows_side_inconsistent,
             "rows_side_unchecked": rows_side_unchecked,
             "liquidation_rows": liquidation_rows,

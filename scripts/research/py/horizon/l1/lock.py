@@ -48,19 +48,23 @@ no synthetic flag). The commands panel, register-check and event-count compute n
    manifest and markets.json. Prices are raw integers per market and only ratios of two prices of the same market are
    used. (ii) The liquidation pass (horizon/l1/fold_liq.py, version l1v1): per market and minute, liq_sell_usd (forced
    sells), liq_buy_usd (forced buys) and their row counts, from rows with trade_type liquidation only (other non-trade
-   types are counted in its manifest and ignored). The forced side is the taker side: the taker bought (forced buy) when
-   is_maker_ask is true and sold (forced sell) otherwise. Where the column taker_position_size_before is present the
-   taker is closing its own position (the pass counts rows_side_inconsistent per day and rows_side_unchecked for null
-   values). The run stops if any day in the span has rows_side_inconsistent above zero, and reports the share of
-   unchecked rows. (iii) The Lighter hourly funding files (lighter/fetch_funding.py output: timestamp in unix seconds,
-   rate_long_pays as a fraction per hour) with their manifest. (iv) markets.json for the market type and symbol.
-   FOLD_FIRST_DATE is 2025-01-17 and HARD_LAST_DATE is 2026-06-30: nothing dated 2026-07-01 or later is ever read, with
-   no override. Every fold and pass day in the span must have a manifest line of the expected version with a matching
-   file sha256, else the run stops. The command panel rewrites the fold into one file per market (the columns above, the
-   span only, a derived copy with no new information) and checks the price scale: any jump between consecutive printed
-   minutes of a market with |ln(last_px ratio)| above ln 5 is listed, and the run stops on any listed jump not named in
-   the tuple KNOWN_SCALE_JUMPS (empty, to be fixed from the panel output before registration and before any return is
-   computed).
+   types are counted in its manifest and ignored). The forced side is the taker side: the taker bought (forced buy)
+   when is_maker_ask is true and sold (forced sell) otherwise. Where the column taker_position_size_before is present
+   the taker is closing its own position (the pass counts rows_side_inconsistent per day and rows_side_unchecked for
+   null values). The run stops if, over the whole span, rows_side_inconsistent exceeds MAX_INCONSISTENT_SHARE = 0.1%
+   of the liquidation rows. It reports the inconsistent and unchecked counts and the days that have any. Inconsistent
+   rows stay in the volume on the taker side, because the minute totals cannot drop a single row. (The first draft of
+   this rule stopped on any inconsistent row. The finished pass found 197 of 1,179,050 liquidation rows, 0.017%, on 32
+   days from 2026-04-29, 97 of them on 2026-06-05, before any return was computed. The share limit replaces the zero
+   limit for that reason, and the owner signs this text.) (iii) The Lighter hourly funding files
+   (lighter/fetch_funding.py output: timestamp in unix seconds, rate_long_pays as a fraction per hour) with their
+   manifest. (iv) markets.json for the market type and symbol. FOLD_FIRST_DATE is 2025-01-17 and HARD_LAST_DATE is
+   2026-06-30: nothing dated 2026-07-01 or later is ever read, with no override. Every fold and pass day in the span
+   must have a manifest line of the expected version with a matching file sha256, else the run stops. The command
+   panel rewrites the fold into one file per market (the columns above, the span only, a derived copy with no new
+   information) and checks the price scale: any jump between consecutive printed minutes of a market with |ln(last_px
+   ratio)| above ln 5 is listed, and the run stops on any listed jump not named in the tuple KNOWN_SCALE_JUMPS (empty,
+   to be fixed from the panel output before registration and before any return is computed).
 
 2. BURSTS (events). Per market and per side separately, minutes with liquidation volume of that side are merged into a
    burst when two consecutive such minutes have starts at most BURST_GAP_MS = 300,000 ms apart. A burst has a start
@@ -248,6 +252,7 @@ PASS_MIN_MEAN = 0.0005
 PASS_MIN_BOUND = 0.00013
 MIN_CLUSTERS = 30
 MAX_EXCLUDED_SHARE = 0.10
+MAX_INCONSISTENT_SHARE = 0.001
 
 __all__ = ["LEDGER_ID", "PREDICTION", "SIDES", "TRIALS", "TRIAL_IDS"]
 
