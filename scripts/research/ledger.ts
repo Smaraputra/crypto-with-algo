@@ -146,6 +146,13 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'scripts/research/py/horizon/e1/lock.py (LEDGER_ID horizon-e1, TRIALS = 4: class T monitoring-tag notices and class D spot delisting notices x exits at 4 h and 24 h), BTC-hedged shorts on Binance USDT-M perpetuals opened in the second full minute after the notice stamp, one read of the frozen event record scripts/research/py/records/horizon_e1_events.json (notices 2022-01-01 to 2026-11-12). The claim nulls (placebo days, matched controls) and the entry-delay profile add no trial. Registration anchor: scripts/research/py/records/horizon_e1_registration.json.',
   },
+  {
+    id: 'horizon-l1',
+    date: '2026-11-14',
+    trials: 6,
+    source:
+      'scripts/research/py/horizon/l1/lock.py (LEDGER_ID horizon-l1, TRIALS = 6: forced-sell long and forced-buy short x exits at E + 30, 60 and 120 minutes), taker orders 5 minutes after the end of a liquidation burst on Lighter perpetuals, one read of the fold and the liquidation-only pass 2025-01-17 to 2026-06-30 (the slice from 2026-07-01 stays unread). The matched-control claim line and the entry-offset profile add no trial. Registration anchor: scripts/research/py/records/horizon_l1_registration.json.',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */

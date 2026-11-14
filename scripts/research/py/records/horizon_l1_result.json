@@ -1,0 +1,2666 @@
+{
+ "constants": {
+  "BOOT_RESAMPLES": 10000,
+  "BOOT_SEED": 20261115,
+  "BURST_GAP_MS": 300000,
+  "BURST_MIN_ROWS": 3,
+  "BURST_MIN_USD": 100000.0,
+  "CLAIM_ALPHA": 0.05,
+  "CONTROLS_MIN": 3,
+  "CONTROLS_PER_EVENT": 5,
+  "ENTRY_OFFSET_MIN": 5,
+  "ENTRY_PROFILE_MIN": [
+   5,
+   6,
+   10,
+   15
+  ],
+  "EXIT_OFFSETS_MIN": [
+   30,
+   60,
+   120
+  ],
+  "EXIT_SEARCH_MIN": 15,
+  "FILL_DELAY_MS": 500,
+  "MAX_EXCLUDED_SHARE": 0.1,
+  "MIN_CLUSTERS": 30,
+  "PASS_MIN_BOUND": 0.00013,
+  "PASS_MIN_MEAN": 0.0005,
+  "RETRIGGER_MIN": 125,
+  "SP_MIN_PAIRS": 200,
+  "TRIAL_ALPHA": 0.008333333333333333
+ },
+ "files_read": {
+  "fold/manifest.jsonl": "f95f46b0d73ccbef2c4a6a48adb125a180dadf321f13ac4b73f27b707f2f9924",
+  "fold/markets.json": "554d7a4d357a9d030734f1925d95857d95ced4604a8a331ade10e5f405fb1faa",
+  "funding/manifest.jsonl": "9c82197a15a2775f7035b822571e8fe0eb7e11619724e3b2e6b645b0359cae4b",
+  "funding/market_0.parquet": "529b0050f1b4111ba0971c3e50c324761f010a24bc2119b62e79890c361b4d14",
+  "funding/market_1.parquet": "34f73f01deccc3c1644ed8f29a3c93fb440f8fc7cb3b82af1a2eae3a5923d926",
+  "funding/market_10.parquet": "04c1f7fbef6211892ef4021af2063a7a3cee8b30722b5bb2c7a97825523aa332",
+  "funding/market_100.parquet": "d9d85f0b16e16c8e93a1821c826c7ce015930dfcbce283476c275fa572b2a0ac",
+  "funding/market_101.parquet": "fda794a1334d9ffde446f2fbae57bf27c42a5390fa1c3beacc9f2a66bd548190",
+  "funding/market_102.parquet": "028cb824521ec01842c4ac486acc322cd8ab7d0ae8b2680ab48383e1dabc50c7",
+  "funding/market_103.parquet": "2f9f028f6e84a3b2cad620f3be2ed3c25ceb5b8799e72bb5154325c9705a3353",
+  "funding/market_104.parquet": "6a3cb2d317926d78901a6e7f8f5a8df4b5130b8e0e93aa3a5e58ea64f1a7defd",
+  "funding/market_105.parquet": "fbbb21265080975ebac3bb056cdd7043aba72a9f0e99b05cf58d432df25c4f50",
+  "funding/market_106.parquet": "de35325b3b6dc06abd5fd6f73e92b3d3bfe0252efec7a942887f883afb9aa92c",
+  "funding/market_107.parquet": "0e3b36a6294fa6975cc3d518c4f00af3d1065063a1e5125ad495f891e9076137",
+  "funding/market_108.parquet": "a226766f524407b1b1b2e6840a2e3d9d6b0594ae19e7ddcf9afcd27171d32ef3",
+  "funding/market_109.parquet": "e829400ce27a33c042acc547f3de9af9bad4b521ba3680f4b84bc3a6eebd7506",
+  "funding/market_11.parquet": "f56d9e42ab95216901246cb17bd1274643addffe4b63e15e68a2c2721e4a564f",
+  "funding/market_110.parquet": "e7fba167fcadcb507ebc5307df7b21f745d5ee1463d88fef3a185ea6f9eaefba",
+  "funding/market_111.parquet": "07ccedc87aeba3167e489805b3d162ef7535318664fd3469642c8713816b0719",
+  "funding/market_112.parquet": "c79d0a29191c53201f1051d4dd02b7f22904ac1b8627562bc0d7f74cfb6c962b",
+  "funding/market_113.parquet": "9e91ea27ed0cde91ba99f9f18b27006f7d9a91737fb643a2c20892b371f47c9b",
+  "funding/market_114.parquet": "b63be5dafda3fcf77c512a8961375103b19b843af35212c93c6669c1ea638f87",
+  "funding/market_115.parquet": "4369f860ef912164dcc77ae6b054bb095fe00f824663ba7a652c9831cce06749",
+  "funding/market_116.parquet": "5ccab59ec72fd1425ada983f2c020b56a9a9ee652717c9b248262d62e2e5594d",
+  "funding/market_117.parquet": "3b6218bdc5da5938971e34cd505de6cfb8a70687febdb4be8d7cb69c740cf873",
+  "funding/market_118.parquet": "dd0944bd6806f8f36c87dec3428dc77c6328cd36bee10aa3d340bc2fd7833eef",
+  "funding/market_119.parquet": "6bbb66434fffe4215599a274ac212ec3a86a459fb6316683571935b919bbf998",
+  "funding/market_12.parquet": "d2dc9d8cb41b33f7e9f1d94805f840111d429cd8bf06c8df096425e7dbc333f5",
+  "funding/market_120.parquet": "0b9f3dc862e80c415d2e4640b3b1c715a22aca12e21c65057117c85d6c4714fd",
+  "funding/market_121.parquet": "4cd4297d9ee7d8e28f0f08f487345900ca2e5dc87b5f2a53c4e318291fbda327",
+  "funding/market_122.parquet": "778355225d92013d30e00e3f729ce3c6b7dd30ce7f309903c93ff3722fbf9a60",
+  "funding/market_123.parquet": "03d16061f84a1a393e3c8f60f1514bebdeb0310f2a54e3f372aaf6c66b5fe4e4",
+  "funding/market_125.parquet": "5a7e0160ebdbdc60a30177ad0fa19be74a6635de4f49260f6080f3fc59c777fb",
+  "funding/market_126.parquet": "6636a830737115c678cdf80f193d3ab239c60f97dd192b904eec480e3c3e6489",
+  "funding/market_127.parquet": "dac3a1dd7970518b2b285947c89c48e7d6b0b1466e948f2535b3140e0d588270",
+  "funding/market_128.parquet": "41b42df0a79c76b43d96652df0637b298d62ec4d7e3f616a864a4a7c687d96a8",
+  "funding/market_129.parquet": "cd25a648f5216771df1b8cbe0c51040a4afc193acf317f31426e8acf36f1aff6",
+  "funding/market_13.parquet": "f4559daeece296feb267a37daae1f951b928dcc66e6b1b71c1bc2879a0cade84",
+  "funding/market_130.parquet": "594a1aa39aaf3646b5a74bf99beb2a59caa8d44e25645615478abe1a6a597d04",
+  "funding/market_131.parquet": "14c7c10e4f562907933b5da1aeb47cce6c99cc938dc17c227aeece00429c8c62",
+  "funding/market_132.parquet": "89677aab7d42edc2b6148376649b135e57f559171c572ecf720c2e4c661a74c2",
+  "funding/market_133.parquet": "14bd493d5c8c1ee4aef0de7502e22aef8a040f1faac4dbf4e64cf61d7ef6a1c2",
+  "funding/market_134.parquet": "4aa68f7ef826cef87dddb76ea0d640005ea5faeeb38e57df3bdd83f07d3f8e1d",
+  "funding/market_135.parquet": "92e61777d792b7e61e575de6efe3637c45e6ebfd55263ec01d46525d14de6c42",
+  "funding/market_136.parquet": "96244dc7f5a5784846ee6f3aa50594d3e752bc6316c5b1866e9be592c302cd86",
+  "funding/market_137.parquet": "a020fcb97b6220d242ae5b568ccbe41ac081f5f39216a50b3a3b293af7a67c6d",
+  "funding/market_138.parquet": "cc07478a5dfc8b890f9e520d86e28606e11abdf2efc07b56bd927f1117029cb1",
+  "funding/market_139.parquet": "af017569e44938920aa2ae7a6ddc88ac548d4e44c68a5fa42f12bb6dc9118208",
+  "funding/market_14.parquet": "c85bdbd2395b30da40307af8efbd27105e0bcc819fd5f705b4c9f5fb43434b29",
+  "funding/market_140.parquet": "fa374fe1abb955295c51b1b2b2d924f5181049eca8125f5a95157a1e486c696c",
+  "funding/market_141.parquet": "c33ff0c9f3d2f4c5bd6616e4670aa2f8472f6e5ba9e2ebac264adb464f76190a",
+  "funding/market_142.parquet": "dd6eaf8cfb9415ac4c5621d75843594047c865b412361d091d315175ef521689",
+  "funding/market_143.parquet": "db970592ff223910c7fbbdaf2de8f14f17a1500146cd068c31490d35be5c7d0e",
+  "funding/market_144.parquet": "4e3d3d8e05c74ee90d866e6ee82a3a94b240b9b7373f365565e6b4e1cce60e9e",
+  "funding/market_145.parquet": "cde00a50fba23c3982b0ab89436860ba1d1256c91e55941a1c2103f2b86906a9",
+  "funding/market_146.parquet": "9a37e5f6924bc525e28726d8740542ab32754e6f0b1d2d22e720f90855aa3fde",
+  "funding/market_147.parquet": "9b7c4e761e7c68d942495cd570f0e01e9594828a65996554e010d9da2b89b5c9",
+  "funding/market_148.parquet": "22437d4e326ad32b10609242537990eb2961d44c94386488bc16bd8bf6a6104e",
+  "funding/market_149.parquet": "78e155b05ebf31a8ef53d40f398c750a130c25b69f16d8e8e594e59af6276c98",
+  "funding/market_15.parquet": "cf314761ffd554116a272f046eb08da1000e5afa3812477d9a9a8c43374d615c",
+  "funding/market_151.parquet": "8b8cebeb2aa3713450147a69bb88431508c0953d8ddca553a977c8a65ed2577b",
+  "funding/market_152.parquet": "baaf92c9571085781775e04cc2ef4bf0a8e4ea27edde59441d7e0e2c2e827a41",
+  "funding/market_153.parquet": "99b39e96f6c53872b22eab4ddc3b03e55817ef834d871aacf56f8ab2811f8251",
+  "funding/market_154.parquet": "8d9fa545f78e2953d961aa3dac5512eba36b8be45bcc6f6926f44d0ff2d4f1fa",
+  "funding/market_155.parquet": "3ae95889c61d7ea1c191f1cd8f90ea47e67111434308e0905d44c12db452f0b3",
+  "funding/market_156.parquet": "091f309b60c68bf8acc39c97a326f5f4fd19c77b7a2c7c4af89ae3499ce7bded",
+  "funding/market_157.parquet": "8266a58e4a8e86ff765982579ab9cc08aa101d60760936b7b0533b3060e4d848",
+  "funding/market_158.parquet": "20463aa7b4f4154441350bbf0647ac78d65334b758f96665930a1a77c595c05f",
+  "funding/market_159.parquet": "e53a6555e5efbff85e158fbdcb015dcce4fa37b044bac5288c3a9daadc2336c3",
+  "funding/market_16.parquet": "c39dce804ca1ccc837be82e92c51b8645dfc7056311fa9e68b2fe2aeba9f3137",
+  "funding/market_160.parquet": "8a6b66b33b0a4f4a5ec709be9be477b5e4bef5c16757e242b63cd6b356212536",
+  "funding/market_161.parquet": "b24a4c830c64fc613022011e444fbdae27986ba509c4ed7606442ddd82a8fe9d",
+  "funding/market_162.parquet": "aca070362c746e0a35290f58737d11fde30a8857765dec7d9b42cbeb8eb2e94e",
+  "funding/market_163.parquet": "060dbb0d053700573c242ddd41296e1434459b28f8a20cd9ec4d0db8f9514f03",
+  "funding/market_164.parquet": "93a355b469b24c4a1dacc915520376fc36be47eb0cd383be018c331a07f05056",
+  "funding/market_165.parquet": "8af8bcb5fc8ef388e4a13f33b4bb8bcf86244273b81f97b6397d8bdae0b775eb",
+  "funding/market_166.parquet": "b89baed256ba8e11adaab0d45b3a6b2497f637beafb557bcb2193c3fe9451aff",
+  "funding/market_167.parquet": "ff4629706bd3bd89a5247056e18118742e315fe4a563ae64346f99347e3245d3",
+  "funding/market_168.parquet": "5571b889c0707780709dcc22e07777c2bc453d58ff6f0065f7acc9f50ee8618e",
+  "funding/market_169.parquet": "414ec4d208d57705d420b238c6df66ddd8aa94ed4093dd301966629f62fb5b16",
+  "funding/market_17.parquet": "dc17b20957517ee3e98adc72ef2bf05443c36397f47f42a9cfa1d6af6b83dc65",
+  "funding/market_170.parquet": "c05fa83df691bda6a0a78be28f358b3c378684cccfcbe1ecc763160655024b27",
+  "funding/market_171.parquet": "7dfc28fa5c905f6b93e22bb41bb5aa062349f546f4cfcdacefb999e00290c147",
+  "funding/market_172.parquet": "4128a94ae20b476fc874ba1003cd426254f529d02d0a3273b5160c5d76203b85",
+  "funding/market_173.parquet": "e7a013bd1c0b02b847cd661bb2d0a97092127487386b5d309460108fc94b4295",
+  "funding/market_174.parquet": "6e08cf9cdd16dbd666456bc0cfece6711997257e2001f67b697b6cca246c590e",
+  "funding/market_175.parquet": "be2bd426b7584d8e57f8b85a75faf7ab454bc723384c9e4de53bbc550fc6a2c2",
+  "funding/market_177.parquet": "6b87e73ea1721c0f834f25a57458574e56a82dabcbdf958e34ac012ecd887588",
+  "funding/market_178.parquet": "f99065f5137100bb79d7c62947c2a646ce83b7853baa5d03fda3f210db44b0a8",
+  "funding/market_18.parquet": "34a529845125767decd21f1771a7202fe75ec8d4982adf1af3fe7736b855ef24",
+  "funding/market_180.parquet": "1efa21554647c146516648a244b32b21bdfd483980a0ede9076480c187d7411f",
+  "funding/market_181.parquet": "b2f4098339678267b5e7d67ac2349b65629be6db271bc8318bbb201328e6c2a7",
+  "funding/market_182.parquet": "6cc2eb04e8af1ba8379cfed046b78d4b5db55e2091f9f09189d25ddbfbc9829c",
+  "funding/market_183.parquet": "cc1849ec7b3d7f0976061ac6fabadfe010d7bb5de79cfeed9018bedb9f905f2b",
+  "funding/market_184.parquet": "9a1bc4f0ab1e9991fb9aa2fc0023e37d6bc20dcb6eaee20f5ec33b1a4fe1403f",
+  "funding/market_185.parquet": "0d2327359109cec773b5a259fe6b827b819495d35b6d0dc16728d50bd23a8508",
+  "funding/market_186.parquet": "f991dec5cec1b3140319948776a90a5dddcaf54bdf81e53b804b5e66cb665d5d",
+  "funding/market_187.parquet": "02041ea058b3805b368190a8c089b1680dd5c5ecb9a124e3d7ca504dd9e23a9d",
+  "funding/market_188.parquet": "9bb2c70aaf80ddaf70bfe276431d7b73a6cc6b74fa7a0478f4f2a8696ee0d860",
+  "funding/market_189.parquet": "46f0b16f24588c8793638ac96eb7c1528667115d0680a8108697f67f7ae6e453",
+  "funding/market_19.parquet": "e165b1ee6c7c6306cb5413a3778a84b552467ee894262f9e60a4aa5272c7fd66",
+  "funding/market_191.parquet": "8222ea97f80abcb0c939227b1e88344c496b84168bf347edc77a0b594ca40746",
+  "funding/market_192.parquet": "db205380a41849a2a886dbe34cbd95904d89e84f53359b398fa5856383ce4747",
+  "funding/market_193.parquet": "ac5d5ccc3f5419ae5031838756a17092cdd9d6495ecf0a5303a238e57273d119",
+  "funding/market_194.parquet": "e8495249384cc3af86d0a8ee109bd5fa66d38b0f449f0c741a53914a03771e2e",
+  "funding/market_195.parquet": "6ad17e778dccdf3f1fadf84953307189683ecda98b8caf5c1cca2eb0a3506a50",
+  "funding/market_197.parquet": "9a8880b6e131f2dae429e3a1e052749295f9ce3224c4b745e33612f78c546d85",
+  "funding/market_199.parquet": "62a59732ac6fbcc5dea3c92161b74e722bbd30cc85f2bde5e5c40588ef787369",
+  "funding/market_2.parquet": "1c0aa46ba1c4c26c9dfaa21a5a9fa55a4e763c2977c3d0275dc59475edb45f41",
+  "funding/market_20.parquet": "f4123d7df4cc677871e18ca9e3b9ea4983c19ed4f899bf405c6fe4f912d4217e",
+  "funding/market_205.parquet": "952cdfd5877d5a8e3867bb56d759906e3256c3a6467a0a27dbfbba210b796f0d",
+  "funding/market_21.parquet": "df98e47734ccba2513f64e26b5da6d0c89f273213cdb546c30f8e27d24ac05bc",
+  "funding/market_211.parquet": "a3430d1056e910561a4d1b9b91624815ca9de735830626ed47b6b7ae29d442c3",
+  "funding/market_212.parquet": "8aab045617445b04765f5c0a7272b85c36060e78acd00960e335905759f74017",
+  "funding/market_22.parquet": "b236907a49f58f7193accb74d922ef11ab7c887cc62062304c60721926b9779e",
+  "funding/market_23.parquet": "bfd103794a67ea0b7b866652031aed837ab43700de6c3b2f882ca05e1fe17ba2",
+  "funding/market_24.parquet": "2b09247555e1325fd616bdc3b88c942d44ae1bf7c7916135f3c66065e2560a9c",
+  "funding/market_25.parquet": "b85f3d64058f3593fcba9fa4d888a0310a5707ac84c3ca1c888848f5f2bc1ebc",
+  "funding/market_26.parquet": "cdca6370455c81e747772093406e22241b06606e702e67bad41c4254e3f020d6",
+  "funding/market_27.parquet": "b3b207283355b46b6efdb4b7253f6191eb0c109f540792f400eb52ea7671eacc",
+  "funding/market_29.parquet": "b815805df60516289ef018037665254b6c6782269674f1a9b70881a5353be31d",
+  "funding/market_3.parquet": "52585b269743ce00c0fe5acf5dfa6042ab1aad86082f3f44f744100528a8543b",
+  "funding/market_30.parquet": "09e2cb1d915d25f681c12bfb0b78d931f0cfe2c02e783d2f6dceb2b703807b96",
+  "funding/market_31.parquet": "581b6474ec09afc78c36e564632492eb0ecf5fbe75e8c0e4765d776e29987f3f",
+  "funding/market_32.parquet": "2709b024f05b5b46fc6c7008ae2256c7aa823108be9f3a13dce2e9834e17a1b1",
+  "funding/market_33.parquet": "cd1de2ab6abb9b3ce0408c07a52172900214be0ae999201acf5eb3c19c0ef447",
+  "funding/market_34.parquet": "48664d71f3ddef1c3a112613ab68fcd4da561108bad9f500b7b06b100e7f111d",
+  "funding/market_35.parquet": "2657b2a9bf18d86b5d8c3a5006a6838c029cb916bfeaad439f42746f36ba7727",
+  "funding/market_36.parquet": "82f5abb25530c7bc4c3d12a2edbec08001c2aa82f3d4f56638134fd96b4ebc36",
+  "funding/market_37.parquet": "22f23e1a434332ba2f5fb01ded01bca4018e4e285ba9d50a38325c86ce21aa94",
+  "funding/market_38.parquet": "83f3518db4785d0f2a85d195fe34ef5dca5377e7ef67a6fac96b3ef39ac23934",
+  "funding/market_39.parquet": "097dedcbc71ad1bfc7d488c3bde92fbe7b0802e79696de26a102e6917137087e",
+  "funding/market_4.parquet": "6adfdd191840d5f95884f3400f98c75e01b317269a9c3d21fa76f9c1f5af1327",
+  "funding/market_40.parquet": "ab969dab6e7428b9b7cc18abac8d36aab2a635db8a22f8792c2c12aba0fe4dc0",
+  "funding/market_41.parquet": "c439b034ce2388da8656bf2030fe7a5b4f322fe0d01729991cce4d85c80ec705",
+  "funding/market_42.parquet": "7638738a3288507597b57f3fc8d35f37bed0bd855af6b7115049e68da934e71e",
+  "funding/market_43.parquet": "82c0b5bb764d0f1d87daece081c79228c1a4e9744638e1ccc2504bf898ff73c1",
+  "funding/market_44.parquet": "7bc010754f2df1d561ecd556c1d277c5385138702ea216894536869ef33027de",
+  "funding/market_45.parquet": "4a11f47e733a891af0ffa2cf354fc5543ec866feca8bf9efb019de01265bec09",
+  "funding/market_46.parquet": "fa749cf39488c5c4e414be2db98e1f55e334f3f8a9a85b1d4681c60c998c21e7",
+  "funding/market_47.parquet": "0361fee09206e636ad0f0e322ec2744944eed4647ce530b428ed7cdea3513691",
+  "funding/market_48.parquet": "363d060917abf740f5b4a2353e118c8281a0e39c6c716f2104b8d7cb4430cf86",
+  "funding/market_49.parquet": "45349ea9a61d100cd8b48958720043d216b2c7580fded473fab4a57c56824bee",
+  "funding/market_5.parquet": "7393cfbee826c7e0b85f7994e6b1a7b4d58dc50252921056dcb2c2508ef8859a",
+  "funding/market_50.parquet": "531bd11bee4639dc176350a73bba605806d15701ce8687764f82791f504f7369",
+  "funding/market_52.parquet": "469b88f412f4589fccf1e0289c07d959fef49f2c7ae95d854834e3a77bf0416e",
+  "funding/market_53.parquet": "5b18d03133c73359a60c6f1bf0a0528d4f383473b912c03e98142a54f248f76d",
+  "funding/market_54.parquet": "a60fcc9995f8f90c375f8d281d314c46c3bdd82b42d0a38593066dab44d7da9f",
+  "funding/market_55.parquet": "e93ae3a6be838071f0621a71eac6bcee047baf91d06d5e6bf74ccc653857ba68",
+  "funding/market_56.parquet": "ffaea025432f2346031ed223a56367a454c18974f93aa105d65f709d2d85e825",
+  "funding/market_58.parquet": "2eb8066474796497485ce1f6311f2e6e236d8e570dd35f6a6fca141288b80768",
+  "funding/market_59.parquet": "2cfaec1dbab77a419ed107e8412c94fb147fc415179dbf5941f7410353736b31",
+  "funding/market_6.parquet": "92c31ffc9b792e68934dee26fd91129b33faf0f59aeef6f69ad5e747b649cbae",
+  "funding/market_60.parquet": "d2ef228b15db9a32e724c9ba5a93cbfc3a00812fbb83c2ed966b8b1ac95717ba",
+  "funding/market_61.parquet": "5b31ca754338cb32fa000adf489874e92e75e23f2de3ab1707115acdb32ceda3",
+  "funding/market_62.parquet": "04927c38968da11bee5428e0abe7a9be92ae459a6039f617bb45f5d70b255bab",
+  "funding/market_63.parquet": "742b40dc445e19f68f078d0deb5215c256989b9577ec5505e1f1b3be4895c3f2",
+  "funding/market_64.parquet": "2345f2d5ed1fdca97918d96a2f2ff13b13be21c9d27e417dea49891174c65f56",
+  "funding/market_65.parquet": "d13b5b7a601f06de4d1c6bef2bc822f4737c23683d2f08e16efa873aec16db39",
+  "funding/market_66.parquet": "f20be0b9a4964f762a4e12655620c1f8e53ba1f642b85af03203e997f3d27172",
+  "funding/market_67.parquet": "c8260d88abbadfdc72f96d7041a438945433b51d86f97d12ad29d643f5c03167",
+  "funding/market_68.parquet": "29ba4827f0b676a671aa0b52c5ccddcf2ffbf97d79ec6e51c8d4bd1329bf5f9e",
+  "funding/market_69.parquet": "0ba2dce35d797e13e708131186ec3c5c5265b62a893e2a889faad07a9dbe2ba1",
+  "funding/market_7.parquet": "85c655bf50d0212826c01df62eda64cef421a9896bc42408c61888e7518a40cd",
+  "funding/market_70.parquet": "2a4a3f5c311516398936a9f24f7aef4270b8b9927cee5d7c92bb87bbc566d758",
+  "funding/market_71.parquet": "04730571ee50845016bd2054eeda2c01a7eb4c8c061a54f401f11f08f9aba4cc",
+  "funding/market_72.parquet": "3a376c2ca0ca1d92d6ed85895f9ef878c90a39b2d76b97ca4e6c062164471081",
+  "funding/market_73.parquet": "20b40432e50f40d97ba1f6e55d9aa6608adef9d365588d24ac6d6cc2e170e6ac",
+  "funding/market_74.parquet": "e18f38ac5b587644490087e8d0ade05325dca7a2e54aa6ee6c38ffcb592d0ea4",
+  "funding/market_76.parquet": "8b0012d85e2b111c433d3300c86d422d38cbc40764837f504204e7da0c48a151",
+  "funding/market_77.parquet": "b9608b8093f0a86aba83e9340558c542123310ffa378d9ffa2029103d1ee0039",
+  "funding/market_78.parquet": "fe617434eb23f7677f1caa936e445277525c9484a2aab761ed376e292c888c81",
+  "funding/market_79.parquet": "fc631964ad35f4fd0b008297ed02f099790fb9d509c9ff540b7fe694e045751b",
+  "funding/market_8.parquet": "5deb1e1a29bf6ab5dc77028171c0da569eb81fed60af1f237482e5cfdc3f6c47",
+  "funding/market_81.parquet": "050703a7560a46492872cad24b5690802461ecbe181ffe560896a3dfcd7aae27",
+  "funding/market_82.parquet": "0554fee4b95ebe4ddca33bca5aae9eca0c160f1a9a4e56fdfe54e3d02ef26aa2",
+  "funding/market_83.parquet": "f3dcaa4510f535255e65ed01786992e26e0d2c40c204eefaf8cf2cfd48f4c558",
+  "funding/market_84.parquet": "361bfddd4063530800e9a25db44c2bbe38c543a8eadfba4fc2b15cc4819a77df",
+  "funding/market_85.parquet": "2d89cc4c7b785c588d92a34c764a818ce988aee24f8dec5de9a7d768af175fd2",
+  "funding/market_86.parquet": "b1fe0f5c1bce05db56cf2ddc57ae4ba981aadd017d44dbfd7dc1280f869f25d9",
+  "funding/market_87.parquet": "c2ff0f2431a35004bb197cf309769308b1de37286c7995c010b7b0d452ee4cf7",
+  "funding/market_88.parquet": "4b3004860b0c488554ca11eb5a9a128325dd3413b2d236ff2b28fa29ce97e842",
+  "funding/market_9.parquet": "08a46b91e1cfb15579de079cd041cd1051b9ce8fc58315c0d2919a5e64a67cbd",
+  "funding/market_90.parquet": "8ec32da8c2d08185a71287c3b3d519520bd13731193d2f2d4b3f800aad0aa1b0",
+  "funding/market_91.parquet": "d1ff2ba0ddeb5f8e204263adedca5925a0dfeccfedba3d282a7808db42d3cc20",
+  "funding/market_92.parquet": "7861d6b5ae10b4a24f03e523681d8c160b361c55837eb0cd771574e874209917",
+  "funding/market_93.parquet": "778dd30805f68ae4e9ffb93265e06bf127101e61be3c050f8c3b2fb74fcfc8a3",
+  "funding/market_94.parquet": "6faaca7bdf73a7688cec1b2a8b5569c085f149bb2daaa49e19fb9041454177b9",
+  "funding/market_95.parquet": "15bff8b9427623038002935e6fd4d9d34369bfc389482ff6e6f0a9a76a377f85",
+  "funding/market_96.parquet": "d135b20987014f7b40aa82a8cc798ff79e4720245964fc464603574b5a2949f6",
+  "funding/market_97.parquet": "7ed4bb03ff287aeb675d49fbfaf577a6ee86c3891a80b8fccd49f15a57020678",
+  "funding/market_98.parquet": "7f1a9b81571912f1e3f8497ef09786bf32cbc54e20733a2e8223a887a8236133",
+  "funding/market_99.parquet": "801558f89aba5ac401b8b872ecf30d55335dd28a45c30c1295431629546ff791",
+  "liq/manifest.jsonl": "b77c575a0fe3e7ceeeaad859e981f65249211368dc839065c5c3ec7ca546366e",
+  "liq/v1/date=2025-01-17.parquet": "ceab2fa4c2095375e84c2b0bf3646c8cb1c97131eef323530c96df92d2fd8467",
+  "liq/v1/date=2025-01-18.parquet": "0d919001b7d23d090c7b21a028e207f62e90f842d97a5763b03e95d67c41e9a9",
+  "liq/v1/date=2025-01-19.parquet": "1f521c1b77d075a867126cf8ca042600347f776314dd4192343e262778d5ed48",
+  "liq/v1/date=2025-01-20.parquet": "3ef1605be4513c2facafdd6bad7de3a090340b65426a69728b0fd1100ac92299",
+  "liq/v1/date=2025-01-21.parquet": "bc2f1c01eecdc08a1ef6bd6c3c909ca61c2a5728e18bcc8b0e7e9dff53902cff",
+  "liq/v1/date=2025-01-22.parquet": "1e087b257ecea357ba6aeb40732105c2f133f0e15a3720fea065499293fe7c40",
+  "liq/v1/date=2025-01-23.parquet": "f198ccc2d6c4c72437d6a0e20c95e168eacf38ac44048f3be698430d743996bd",
+  "liq/v1/date=2025-01-24.parquet": "45cfe22e7a77718a7ab4b96dff1ab61520a4f8692391872f16b864c7304baa31",
+  "liq/v1/date=2025-01-25.parquet": "c729da3a24d0868ae04abc77ffb61c07b6d75f1b1969c116bb06ad48db2a46f9",
+  "liq/v1/date=2025-01-26.parquet": "7ecd0c0021597a93d9371798bd473284f5415936729eb454f0bc0111d12c0d78",
+  "liq/v1/date=2025-01-27.parquet": "548abeeac9d2052580fb6006596794273dee073b405b790dee33f80f714cc6e0",
+  "liq/v1/date=2025-01-28.parquet": "6694f8e9092190a70382f3afbf81b311da69de2c60e6af91530888b7e0a3f337",
+  "liq/v1/date=2025-01-29.parquet": "c48e80ef770339762328687398617732cf32aac42a5fc55629df2a17b4af50db",
+  "liq/v1/date=2025-01-30.parquet": "ceab2fa4c2095375e84c2b0bf3646c8cb1c97131eef323530c96df92d2fd8467",
+  "liq/v1/date=2025-01-31.parquet": "5f592cb7ff63fa000a0f9fbede5028ec9700d47a413d94308dd1119d5ebbaf81",
+  "liq/v1/date=2025-02-01.parquet": "82250d5908fb5bc1f8422f39bcb60fce89ee1f8fd697c8712a569c60954a2fc7",
+  "liq/v1/date=2025-02-02.parquet": "bb062cea1df220d55ff9b0c2927bb25e7e8094752c4a1372bbf743f2ee6c9c1a",
+  "liq/v1/date=2025-02-03.parquet": "0a7311387bcfcbbda74817fb5d933099071f3682a964710d0175757e9b83a54d",
+  "liq/v1/date=2025-02-04.parquet": "42c97f2165bb8439a4d0b54dd28bfd4f38bcc9b44c633c44f4f4a72cdf438983",
+  "liq/v1/date=2025-02-05.parquet": "20fa3c7a5569f6313c658bb5ff0c2e1c90e7903721473b119690e40f215368ea",
+  "liq/v1/date=2025-02-06.parquet": "2831906bcd0652054038cd8d768caae125d5107d095c480ff33ce2c5da7bbd84",
+  "liq/v1/date=2025-02-07.parquet": "b5a648c473face1426dca9e54faf3d7a2925db56591d30dd1e97085ad9fb3d22",
+  "liq/v1/date=2025-02-08.parquet": "ceab2fa4c2095375e84c2b0bf3646c8cb1c97131eef323530c96df92d2fd8467",
+  "liq/v1/date=2025-02-09.parquet": "1b617b0f20bea745eb1ac0abdb9b52558dbc0f2baa26864ae32cc58cfc029c52",
+  "liq/v1/date=2025-02-10.parquet": "1572503cef8bc86f54709689d7f6efb94b63c278f363c3801a527393a46b0ca6",
+  "liq/v1/date=2025-02-11.parquet": "fb9cef2953864cd41ee502442d70139fd747ccbee8969a75247d51c29d73c37d",
+  "liq/v1/date=2025-02-12.parquet": "c951d50dd789818a61f6b7fb590b7ed0a7a396d00dd0ed8b6d6341595e38e0fd",
+  "liq/v1/date=2025-02-13.parquet": "2030abb1949bf7b17ef1cfc0258e92fc29d9132f417d876118b0e04f25fdbb09",
+  "liq/v1/date=2025-02-14.parquet": "45282e0a900944ea14545b4f27a7691165b5ed716da481a80c2138934c622b2a",
+  "liq/v1/date=2025-02-15.parquet": "ceab2fa4c2095375e84c2b0bf3646c8cb1c97131eef323530c96df92d2fd8467",
+  "liq/v1/date=2025-02-16.parquet": "32d4bb9c298c272d975cdb3c33ff7898245e7f6cf0d480a5b0076cfdb1e1556e",
+  "liq/v1/date=2025-02-17.parquet": "bc36340be2013738e66d36f89e090964c197e95780c24c8e7c43bfbda29d7ed2",
+  "liq/v1/date=2025-02-18.parquet": "1b1e3ab787196871906e3d02982bdd692269f1ed755a47ccd4287ce9a8e68dc3",
+  "liq/v1/date=2025-02-19.parquet": "faf9d8a493801e955f453d49eb505f3ce5dd32874c213e5b895d9369d40fbee0",
+  "liq/v1/date=2025-02-20.parquet": "1125534a242adc92612305c5bcf99b53acc6aa67fecad3894a4aa351f8b82ee7",
+  "liq/v1/date=2025-02-21.parquet": "047a3c356386d0bbb9200a0a6f266025fcd24b5ce9d44e9c471b0622617417f8",
+  "liq/v1/date=2025-02-22.parquet": "ceab2fa4c2095375e84c2b0bf3646c8cb1c97131eef323530c96df92d2fd8467",
+  "liq/v1/date=2025-02-23.parquet": "5b076eccfe5f04dff01d6eb1a348686070eb5fced6c6d2f87f582457985647ea",
+  "liq/v1/date=2025-02-24.parquet": "444263438fa1d0bbd51fa699381d65cf02172948b0b99f6e4c1d851fcc9582b1",
+  "liq/v1/date=2025-02-25.parquet": "3c780d52a25365e6e7b827d0db7bea77832e47d2da136d0eea68cf45ab4a80ae",
+  "liq/v1/date=2025-02-26.parquet": "376807819a8e3757efe9281d9d1843a89b134af58a4ab3eeb41756352011b257",
+  "liq/v1/date=2025-02-27.parquet": "bcd8ad4d6fac6189c7529e35364d2b62fde42e26dde88a0fec8984d59f24bacc",
+  "liq/v1/date=2025-02-28.parquet": "1370059fb8609c1e5d717ba928b850cad10986ea11e0c452b2288f1682f3f4b3",
+  "liq/v1/date=2025-03-01.parquet": "86ccf9afa21e15c7d8303c34644b2b26aa03db8cd738017839d3fbdf285b2b0b",
+  "liq/v1/date=2025-03-02.parquet": "866ac855d0dc3b3569c0979c7d1c5e813c996ff078c785c6e123a6dda0896c19",
+  "liq/v1/date=2025-03-03.parquet": "4a3a11a32aed4bc605e8619974eb0d28f0ab193424b979c4710f2637f1b69d9e",
+  "liq/v1/date=2025-03-04.parquet": "1e899d979670641c8fa822c4593cf3355861696ad9376e3a0b6a52345843a608",
+  "liq/v1/date=2025-03-05.parquet": "9c3ccff0e56c932c877f706fb56630bf7677e206361341c66861c09fefb04d7a",
+  "liq/v1/date=2025-03-06.parquet": "8727d1c8d94bf82bdf6e06b0855b6bf337a93972124fae2f1714ff63d823df35",
+  "liq/v1/date=2025-03-07.parquet": "7b6e4032bfd509c30e23f22e366ae8de86eb1ef73fbc6426faa7e2635daa6c78",
+  "liq/v1/date=2025-03-08.parquet": "51b6e0c0006929fb04612b7f3a9a78e9b362a3866ece8ac5468a50c5b3816016",
+  "liq/v1/date=2025-03-09.parquet": "1b27fc613838b0c77cd8e8b67b004cfc4b05250b5368c03e10d6dc769bd223db",
+  "liq/v1/date=2025-03-10.parquet": "9be3880231dbe0fe32943d5f7e95782299a773adbe080d8f404d285f6675a870",
+  "liq/v1/date=2025-03-11.parquet": "d83cf9272f2b945c3753b505de14980010809595204d9619957464e22a2583a8",
+  "liq/v1/date=2025-03-12.parquet": "8f8e2e3cb6f3c92f2c90e22b7a42eb2631758ce3e3707b553584e82a033dc498",
+  "liq/v1/date=2025-03-13.parquet": "1fa05306eba81cf716e47ad60ca22105615f0a4109f8baf121eb2493d4e821ff",
+  "liq/v1/date=2025-03-14.parquet": "89215243c4887f7ccf4f82435088b43d2b88bef396e0df41b12494620b31ecc4",
+  "liq/v1/date=2025-03-15.parquet": "cb3b1c4747cb9f3b892eaa38af0406a31998c811f5ddb9be173bf047a2e35db8",
+  "liq/v1/date=2025-03-16.parquet": "f85ccd7048a3802daca3927ba26473975fcfafef31830943475f6fa7dceb8f16",
+  "liq/v1/date=2025-03-17.parquet": "463e7742d602436ebfaaecdf4e94fe648590a532cae0464874fdcada7ea8a1d3",
+  "liq/v1/date=2025-03-18.parquet": "1d768f25196f579650e985ea388a9a75ec254599e3cc8379dd0510075de35c4e",
+  "liq/v1/date=2025-03-19.parquet": "aa72ccb193d292c9289f16bf29c6cd1f44aa06c4f0faf3c83619cbb7221da214",
+  "liq/v1/date=2025-03-20.parquet": "13e1c9f235644d2ae8ebf09ba062ea96b997799f46285afe6732aeea1f59dbd7",
+  "liq/v1/date=2025-03-21.parquet": "aba4b6ba28818aa9cf472f477951278c4ead60d43d6c5eb8cf712030d8cf8e46",
+  "liq/v1/date=2025-03-22.parquet": "82db63ad2b6996a186a7ca5bb9ab8b8a3d940590d46f5c82fd9256429b5943c0",
+  "liq/v1/date=2025-03-23.parquet": "108e67ea11f4bc1985fadb1a37ff9e34ed18e6c01fffe03797dad9a142cabea1",
+  "liq/v1/date=2025-03-24.parquet": "969c6ad5657c02c38fe0e03e8ee0df3afbaf787af58483dbc27dd32bdfd11549",
+  "liq/v1/date=2025-03-25.parquet": "11791e375d927ab21e3e79940df6b9957e190a7031076892663ecbeff93d3cf1",
+  "liq/v1/date=2025-03-26.parquet": "7b167c507212e0fe945a599aba5d818c1a18768c476c446974037f5fbe9d69db",
+  "liq/v1/date=2025-03-27.parquet": "26df307b16cc46f140972ee546f2e1534530b398eab8884a4ccd02935e763905",
+  "liq/v1/date=2025-03-28.parquet": "a5f5d0d9b1cc752127039126e7546934431a8061084cd65c3a19db5368906366",
+  "liq/v1/date=2025-03-29.parquet": "23b550b8cfc8325daad963bf9a2006ef94bd03f404927092b202bee5cc1e9bd8",
+  "liq/v1/date=2025-03-30.parquet": "74216f9574ce14f8629407a60c40b117e98f42e51e0d958e58585d7bdeec8a4e",
+  "liq/v1/date=2025-03-31.parquet": "5cb286ff74f7fbb763c9ba9fe99046d08b8d28f39a5485be84eb7bbd9ef909d4",
+  "liq/v1/date=2025-04-01.parquet": "34f1617e7ec3539e4e840219e1a56af9d8751636eb61ba8d72fa453ebd152cab",
+  "liq/v1/date=2025-04-02.parquet": "97d1a4e81d40fc0270990919ef1026cf4f1f94e2562a1f3a9de5c34345f2192b",
+  "liq/v1/date=2025-04-03.parquet": "407bf6289a8b396c27c8311e132e4bf850de43a674d8c9cdde92a2926b8d5aa5",
+  "liq/v1/date=2025-04-04.parquet": "334bfca8a9b74e3074fe57aee1fe870d2480ea862cb9556049df77fb55956e5b",
+  "liq/v1/date=2025-04-05.parquet": "fe5014bd31f3dbfdb1a737db0bc8734cadaee9338d7a7f5d8204602acd2806c2",
+  "liq/v1/date=2025-04-06.parquet": "214b244bb60d4d36b544c6747f55a1d1691ac4d1cf2e1e1068af1025bde69eb9",
+  "liq/v1/date=2025-04-07.parquet": "e17adea623d7883494bee337a2f4c6c9dc0c3139be30d18bc73d15619164c7cf",
+  "liq/v1/date=2025-04-08.parquet": "edbd28b771030545afd7f67e20202c4d360c8a7c3c53d4f98881f0a42b43e81a",
+  "liq/v1/date=2025-04-09.parquet": "108a090fc6c88f03984bccf992f2afb76f22858b496798a37e341ec38e63e710",
+  "liq/v1/date=2025-04-10.parquet": "0ffd812886dc8b74104c446194aeb35afa95a0ab6e3543a7fb16d355515dc11b",
+  "liq/v1/date=2025-04-11.parquet": "96c695bf4a045fad4c892c798916257f9d9130041a7f40025c05d28e28fa98d6",
+  "liq/v1/date=2025-04-12.parquet": "bb8148030b82943cb2d27a9fb551865be9ea47e76320b819fd8b0050a907322b",
+  "liq/v1/date=2025-04-13.parquet": "cdc32458afbacf087648c29c14c3a3ff0fff026336382fa4633c156f4dbb4c15",
+  "liq/v1/date=2025-04-14.parquet": "6709b305193cf2eb21b54baed8abd907e7afe5ab56d58e5c48b543469e9aafa7",
+  "liq/v1/date=2025-04-15.parquet": "fea55cd919bbe874cb12c61c080bafac445fb9f842ab67f53d4a1d4ddd00f5e2",
+  "liq/v1/date=2025-04-16.parquet": "e1c2211b0607926dd045cc36ad318d969eaefde4c5de2e7a0a2e5fee5fe241b4",
+  "liq/v1/date=2025-04-17.parquet": "ba345fd9d6f28fabc0db521f471d95546042b671b264b37217ddfeec6b235a1c",
+  "liq/v1/date=2025-04-18.parquet": "f8ab97ab2df51ef10d2ac717ef610d1c50bf69015b0a4a7d7d0dbf4527129c43",
+  "liq/v1/date=2025-04-19.parquet": "c14c8d60d640df861fb14e1fab5238b7c5325d3091941de5401b26aec86f988d",
+  "liq/v1/date=2025-04-20.parquet": "104da13065cdeb543ff4ce700e8a3db217de9d52e7404f891e020086020049b6",
+  "liq/v1/date=2025-04-21.parquet": "d34faad65890941acdc91d84290ba031271f10908e78e6a2323a45dac3e06a50",
+  "liq/v1/date=2025-04-22.parquet": "9f39fb276af7077897b9f0eb3563fbe7f21be6c60305e76b9d1dc4272d40e6c5",
+  "liq/v1/date=2025-04-23.parquet": "cb6d53a3ef78b0b2e011e93d0880d7820a9c21ebe2cc70b8fe9b14082969e2bf",
+  "liq/v1/date=2025-04-24.parquet": "977480eb63b68691f24eb3c0bdb1b864fc397ec59973e28a66dfb110af0637c3",
+  "liq/v1/date=2025-04-25.parquet": "b2025bd0ef6747d22fcf1ff0e1341b0af911128f170bb3cee3151bd6d000fe62",
+  "liq/v1/date=2025-04-26.parquet": "02a4162b14b491116d7b2e5b898cc41abd178646a5303a58ed5b8aa5a43947ce",
+  "liq/v1/date=2025-04-27.parquet": "46d400597bf18c556d2641d61284831ed7a1986396c809a14cc76d409c6db1d5",
+  "liq/v1/date=2025-04-28.parquet": "1e98ed5d472e621b41c910649d3f981bebbc85c7aff9767f8a5cb6213d450975",
+  "liq/v1/date=2025-04-29.parquet": "dc03080a4733b0cba1c04f433bc52b12e9fea83e9497158aa75c057657503e33",
+  "liq/v1/date=2025-04-30.parquet": "6c911543cb03fdadc84ba2ce1a20cfe1f53b8c4fa65254ccb0c7417db7bfed21",
+  "liq/v1/date=2025-05-01.parquet": "5599d4b9beba1e85426d92d4223b5a4ec899af4d314c9fb76b112579dac4e35a",
+  "liq/v1/date=2025-05-02.parquet": "62e00601f3546b4c43d601dc1a53317c9c9e07dacac941de4441e3af0e46f128",
+  "liq/v1/date=2025-05-03.parquet": "35b8506879d6ed6861620e066794b63e195899dc1816f2cd0b8cdcef69d978d8",
+  "liq/v1/date=2025-05-04.parquet": "57a9aa55545b87a708681c478b2c9a4a3092b749b36358ccb0e99fab9702e7a5",
+  "liq/v1/date=2025-05-05.parquet": "ca53d26ea57ce1612682917483437869ebbdf89408e66e997c03196681c792c6",
+  "liq/v1/date=2025-05-06.parquet": "24f2abd03a9280a442ca176ebb4740a036b09fcceb0a323c3582d21bd05c260e",
+  "liq/v1/date=2025-05-07.parquet": "c01f56f881c21fad146fe099e45fef118d5dfd173a6d677668a6336207cb32b6",
+  "liq/v1/date=2025-05-08.parquet": "c6b81d404edea093fca7d7f2d719571a9223667afd7f7263d1da296b95823111",
+  "liq/v1/date=2025-05-09.parquet": "1502e233f323d0e64279d1a49939657f963c627b8a9dbbddb67607d4295c4aa6",
+  "liq/v1/date=2025-05-10.parquet": "88808582630d37f93d2b719cdbb2c18a8688d72f177cda79052f163d507cc1bd",
+  "liq/v1/date=2025-05-11.parquet": "bf558a6b1869fe0f3433efa76886d1d2680c1da127641646b8279f043b49960d",
+  "liq/v1/date=2025-05-12.parquet": "ab68355b77b728458afdaf3a945379ee0076d46e615dc168150a65d464bb280e",
+  "liq/v1/date=2025-05-13.parquet": "41955593da1aa0ea2c0b8996cd8391d6bfe81232857f79786e83027fe73c0e0a",
+  "liq/v1/date=2025-05-14.parquet": "7a791e523913518729fadc3586c9e00b8fdbb04ad778d777d3e05ca0da59d176",
+  "liq/v1/date=2025-05-15.parquet": "11bac72836a6af5d1213ba23c5b93b49df01eaafd07789724d401d2a8416ba20",
+  "liq/v1/date=2025-05-16.parquet": "ffea23e094c33ee22549941c9b4eec110351ba3de422d09822cf647d92a91772",
+  "liq/v1/date=2025-05-17.parquet": "6ffbda1c0340d6fb8dd76d25cbabd89f9853d6aff192537333821512654ac81e",
+  "liq/v1/date=2025-05-18.parquet": "9b54f729ab64bdd41e0ae9165fd3c237ded66f87948506b845090726098e282b",
+  "liq/v1/date=2025-05-19.parquet": "3879bcc8c005f989c3023c054c8a41fb861ed08340a290e69a6b61e960f03552",
+  "liq/v1/date=2025-05-20.parquet": "00049b0678d065b8ae847904316d3d6653f8481ca72d22557647f32547d40255",
+  "liq/v1/date=2025-05-21.parquet": "26e46f0f40c7ddec132519e085e425b6193e3872299ead189bfa97618e512e21",
+  "liq/v1/date=2025-05-22.parquet": "331ff9b1d8090e6d0beed126f0e07de5cbc06043e551a19dedcc0fa7256623f4",
+  "liq/v1/date=2025-05-23.parquet": "a8f20990c98716f7e0c3f3b39a4ae3d9bcb650ec51a301cfafb223eb1f5d22eb",
+  "liq/v1/date=2025-05-24.parquet": "c87a526aad059d9ab77d057974a6b98760348478bd21db883f70f3f954de6209",
+  "liq/v1/date=2025-05-25.parquet": "0412d1a820e271a934eafbd1053b56efe387a82a1a4b7473643558a580d2d429",
+  "liq/v1/date=2025-05-26.parquet": "d05dcd610ba7409ad08f902de7626d64521ad10f01735f820c47343d1526cb6b",
+  "liq/v1/date=2025-05-27.parquet": "befd52c4af915bd93e149f7f6bb015524e182eacff95d9c33b9a43c73dfa320e",
+  "liq/v1/date=2025-05-28.parquet": "f86dd13f24e3b8439707b321899287df8f7438dcd34a04d4a3f6bc4d1175b632",
+  "liq/v1/date=2025-05-29.parquet": "94b748000a9eb962a76ba2c3322d57fe6b8ca2a29f26db28dd0d490c90b0de2a",
+  "liq/v1/date=2025-05-30.parquet": "572ef68db55e8b5b1909ae3e5701acde8fa7ba7f6bfc56a1b1838ad50acabc7b",
+  "liq/v1/date=2025-05-31.parquet": "0b27565a4a6d7ba0c151632492d9ae69bcda2f46b296528ba0b4e3c82cc12661",
+  "liq/v1/date=2025-06-01.parquet": "f498578123c383f1270074e9827a1433ed9ce5ee402e25183d088d016eb88035",
+  "liq/v1/date=2025-06-02.parquet": "c0c61f5b72f6927b665f571c58590ebc2a64ec83e6e9afacae4c2d59ddf63d67",
+  "liq/v1/date=2025-06-03.parquet": "5ec9821102ff584fbb5dda803043ab9b70534807e1067705017a2dd2c659d883",
+  "liq/v1/date=2025-06-04.parquet": "c875200ceb944e24d801bb8e0441a5e790b3032fc1d6073a536f1b4794eb4289",
+  "liq/v1/date=2025-06-05.parquet": "aeb1d492957cc854d574cc9ddacc104ca95c502a93e9ab78b7a264136cd878f2",
+  "liq/v1/date=2025-06-06.parquet": "c5a26bc52c79d20231710b8b1bd602ae60bfd8004e8a24e83b3db73b1329af78",
+  "liq/v1/date=2025-06-07.parquet": "354e32688183841f53c0c43c52739eb696b1c090c27c39b82410aad5d9915b35",
+  "liq/v1/date=2025-06-08.parquet": "fa633a5f211554abc4bb5e5fcae8a814b5eedb8fad3510da18b3d80458f91af7",
+  "liq/v1/date=2025-06-09.parquet": "ba41b1de70998c4905a5846c7a8ff38b2235c4e562bfd71f8ae8427b6dc0de0d",
+  "liq/v1/date=2025-06-10.parquet": "30ac3acaf9e52ee907af21175dc08d2ff404ca2737a87cfbbaf040a0a31eaaec",
+  "liq/v1/date=2025-06-11.parquet": "1c5e4dedc488be64496c2f04d52c540e721ad8e5dd99caeb99a3f7d1505828fa",
+  "liq/v1/date=2025-06-12.parquet": "89d8d3ae4b0dc4a40146c7cac0323f1bc2e6318944dafd9487e1c6a816fd8d85",
+  "liq/v1/date=2025-06-13.parquet": "cab33b31db301ced7a38e057ddb993c3833e53c2fff887d095fe154afeca35f4",
+  "liq/v1/date=2025-06-14.parquet": "1006e28bfd9966fb904688bcc648a5ffcc1762300cb99e5ab9bfc25badb0a417",
+  "liq/v1/date=2025-06-15.parquet": "df93d7e4f753b6bc9871180f85dc1aaa7bdaf12383f3388e65e10c9c35ad4727",
+  "liq/v1/date=2025-06-16.parquet": "553355fbcd98f8859ac8be7fba8c53007a19670eae942d29e5f2e80bd70df314",
+  "liq/v1/date=2025-06-17.parquet": "9c51c7d929fcaac7248f14821457cf6f2f1d2a0add150666dfd664b9f2dd713c",
+  "liq/v1/date=2025-06-18.parquet": "70558f5234b73b02270b5199489027a7a99ff05d31d23a09772d99fc9d8f46bd",
+  "liq/v1/date=2025-06-19.parquet": "af32a12c20ae758105be0c30ee31baff6dcfc865e06421f81f03f554eff7fc7c",
+  "liq/v1/date=2025-06-20.parquet": "e8066d2424e61b5810028a9869f2c709a966b99fc4881a136b0502555f030972",
+  "liq/v1/date=2025-06-21.parquet": "e2dff59bf8c9e04da73d7be4ff2ef05c985694d68fe0105aec7fadd07c13b4e8",
+  "liq/v1/date=2025-06-22.parquet": "1ee577785a2a6cf378aa6457cde365318dadc3c7e5f35e79f11cd7e2bc810e37",
+  "liq/v1/date=2025-06-23.parquet": "e6d033fc221875d85b530a4b5d4ce7a58a37fd42e602f5d88d3a624bf8534cb5",
+  "liq/v1/date=2025-06-24.parquet": "aeeabb16010b0a18002c250d73379ae4c93a618e998b57e4ffb4320e4ed3e50d",
+  "liq/v1/date=2025-06-25.parquet": "ef1992189f98686be881d66751b3f3cfedcbca328018d1f01da21db7ceddb915",
+  "liq/v1/date=2025-06-26.parquet": "af43e0f5061b48c1b50d576b8c9a6e4da97500f86d67b5827e04fb11e13ade6e",
+  "liq/v1/date=2025-06-27.parquet": "44f08ff785292e691e924b1266c45b3c13528d06e45e92f6439930db65a679ef",
+  "liq/v1/date=2025-06-28.parquet": "53eaf8e31a58a72779690c95b3f5788d96c9067053cbbc2efbddd4019c0436a9",
+  "liq/v1/date=2025-06-29.parquet": "2209beb3c60091bd55f5debd2ba8dc547e24cdf5796c28fe6feb8e6c47d5800f",
+  "liq/v1/date=2025-06-30.parquet": "ac6702d37c237218e132fe526641a57d5535efbf325c3a3c589995825b1ebe4f",
+  "liq/v1/date=2025-07-01.parquet": "48b119e6e52fa22202d96b3f90e24f695ad79ec8dcfadb49774550c34546b89a",
+  "liq/v1/date=2025-07-02.parquet": "3cb995f0e84f95c5b01a245b8561a3872a19552353ec35c38ceb75b9d350ac3c",
+  "liq/v1/date=2025-07-03.parquet": "15683e6e36eaa978af0e312b59d8c14b21ec973b384b97b18a77586e5d0f4956",
+  "liq/v1/date=2025-07-04.parquet": "7dfa43d75441d2681fb9a392654a36134d9423ce938030d74d47ad2962061604",
+  "liq/v1/date=2025-07-05.parquet": "5f3cea28f590a9b96950bac41c40e68e99bf7fc55ed5cab2cf41ef1f7d23637c",
+  "liq/v1/date=2025-07-06.parquet": "22bd42523fe169ca3a56ea46dc6a3035788a3e70c3991358359a20830dc8e989",
+  "liq/v1/date=2025-07-07.parquet": "2d9ae94e32a63dd111919ef67ab7eace6f27ca8e879073691a01fb92ce187ddf",
+  "liq/v1/date=2025-07-08.parquet": "cac984e2773aeb6f30009609c7f4850f659801607e5b41b3e9a65d236c3c0e22",
+  "liq/v1/date=2025-07-09.parquet": "483a6383ff4ad86bd1658e5598d552bd6b36faea43eac059a08455c233445587",
+  "liq/v1/date=2025-07-10.parquet": "88b552d90777b12beeccdfea9fd3e2c19ac2ef69cf98a8c0886a6953ab0ed454",
+  "liq/v1/date=2025-07-11.parquet": "4d3b2108e11cbd936a8294c44ea4e2c9338096909761a1819cb461117c5cc993",
+  "liq/v1/date=2025-07-12.parquet": "8c4855e14ed96629df2348ab81f0fc6fdc2633b3809bdf6955910a01764ce221",
+  "liq/v1/date=2025-07-13.parquet": "b2c15653c910e7633fcc5d8f9e2c6cdb37c43cff95a10ced256a545d0da57de3",
+  "liq/v1/date=2025-07-14.parquet": "a28a4f42d9f05b9f8f96c086e093c02a835d204c55586b42c33a45b1b375d0b3",
+  "liq/v1/date=2025-07-15.parquet": "c5c9f1d845404d9e150aafecf6b3b50d5a749bcfb5853088ad35e41bf5be7e05",
+  "liq/v1/date=2025-07-16.parquet": "ce42c0271015f78e350f8f9289567194f0ad057094f9278cdebfb96b617fc3b4",
+  "liq/v1/date=2025-07-17.parquet": "234b02dd17346831286bde73d77323db0d1d91fa08cea6e8ff9fc05394f1ebf3",
+  "liq/v1/date=2025-07-18.parquet": "67cfda0d80fd574932dbf29e07afbe2bad76c9dc49a7349c6ac1509ef9dce739",
+  "liq/v1/date=2025-07-19.parquet": "0640268bae552a91d750b268a6ea03c6f44ef7c68a406e9a1e9f6c1e82809e11",
+  "liq/v1/date=2025-07-20.parquet": "6aba94cf6d59c9caf11cc6dc7ae5e7130f7b0c7351e87c5a4a5c18b7e1f42e04",
+  "liq/v1/date=2025-07-21.parquet": "c157ae3acdfb003ea4fdcb834bc91730c7af6926eda93fdc5b4c9b415db3ff50",
+  "liq/v1/date=2025-07-22.parquet": "381a9d40d7b68fbc7384d6b4690165d8889fd88345bbd7ede0fbdb736f958c41",
+  "liq/v1/date=2025-07-23.parquet": "0f4738e70a80c48cbadcf39645f885b2a9574a9834196447e4ef81d4e9e8b8ec",
+  "liq/v1/date=2025-07-24.parquet": "d774b89c4985ffc7992145ed4d97f85413373e1ff14de26ccffff4a84b41dcbb",
+  "liq/v1/date=2025-07-25.parquet": "4e143a4ad5b39a1dea6af2add33d60d146cdbaaae7fb5dd64cae7c97726f5eb1",
+  "liq/v1/date=2025-07-26.parquet": "ceeeeee41b2c2b50ec2873fd77095c727bcedbc2172f4fc2ca5e645be8889e50",
+  "liq/v1/date=2025-07-27.parquet": "76dbeba4ebb4a5329361183e537e664e4d2e92351fe0f3b467c14d0231fb2a3e",
+  "liq/v1/date=2025-07-28.parquet": "071b29bc1af33cd564e71c308fe095492e002ae6c1b1a281e9ac9ae8f4bab682",
+  "liq/v1/date=2025-07-29.parquet": "26e426b0375b348847b93be8c286037676273f90fb8f190bd8904b4b3cc1da7c",
+  "liq/v1/date=2025-07-30.parquet": "9435a4caa0361cf01854a09479af316ddc0d93e631c911f7cafea89fa95b6551",
+  "liq/v1/date=2025-07-31.parquet": "1a59ec595119c89f515416d4abdd29fa9784cde8eb68968f65f940973cd0d074",
+  "liq/v1/date=2025-08-01.parquet": "79deddcec3e10dbef910510f1b4d16770441d212edda307a3c0596dde45369a3",
+  "liq/v1/date=2025-08-02.parquet": "83f7b506a67b7d95d1103403b9c237ccbe057d78e264993979d3f1fd0a696cb5",
+  "liq/v1/date=2025-08-03.parquet": "b2a6fdc893e7758a24db1a37490cb15d37187b4449ddb60b671378f375430363",
+  "liq/v1/date=2025-08-04.parquet": "a9bfe1b8421429b9c3ce5bc3b651068c12853a9f57c4c099ff4831567fd25b63",
+  "liq/v1/date=2025-08-05.parquet": "f79925e36fcea53fa8d926114af4cfed0e8e84c9db3ca4faad12a47df427c89d",
+  "liq/v1/date=2025-08-06.parquet": "bee8129f317aea081e9fa6aad98ba08cd013290f2753763a12c4cecbe9064073",
+  "liq/v1/date=2025-08-07.parquet": "6c5b1448af1de5db575563f7be85a82f13403a6e69a288696710c9236228bdd7",
+  "liq/v1/date=2025-08-08.parquet": "6048a52de48c77a577dfe4d89c3e4406bc264b280fe547bda06ec0ee4769d5ec",
+  "liq/v1/date=2025-08-09.parquet": "b8c4fd5f6dbfffe382b14c1bd3ca1cfd486b4e0a41e99ccd6747d12010caf4b4",
+  "liq/v1/date=2025-08-10.parquet": "764dfa0fbc4f71212d8bc3c857a9237ff466dd3bb48ac97bf2ea34fb4ebc87ce",
+  "liq/v1/date=2025-08-11.parquet": "cc87a84059fc3f1185e6f42078a576741d17e794dfb12fe00b641c44d3a203b3",
+  "liq/v1/date=2025-08-12.parquet": "0542efd68b501a92e2f110807c539fc2910502ae071a1bc32ea05e3352dff714",
+  "liq/v1/date=2025-08-13.parquet": "5c6513c337d159fb1d72477bb9167600fe642bfb46155a6a2350563847491463",
+  "liq/v1/date=2025-08-14.parquet": "6d34551a7c5d8b242c42c66b3b7a5621d5adbb78c8f91cb42062909bceb4801c",
+  "liq/v1/date=2025-08-15.parquet": "f2a91f8c2e689b5e150e6ab1a34ec235ea8fa31cae5c62b1bc7aa9031e6abd70",
+  "liq/v1/date=2025-08-16.parquet": "3e0a321689247e566f6160a8df6a61e89ee9fb8dd5e73e94907e7f38b5c3fede",
+  "liq/v1/date=2025-08-17.parquet": "7a43ffffdd092d3b87612aad0d4b578c655d5fa5f669e265cadd1a21168be0b6",
+  "liq/v1/date=2025-08-18.parquet": "a2da11d47c58ff403cc5b751f89e27ee088b592f2bca24f441d99c9e2497e9b7",
+  "liq/v1/date=2025-08-19.parquet": "603ebbdea7e2c64dcbfba401c234899f3c8a0149d0f4b80165df6d42b7ab0d14",
+  "liq/v1/date=2025-08-20.parquet": "7c146ffb3c99b5eaefaf62e7f3cab69f6efdfe03d9b8ba9b41e8f8ce8f4a7c05",
+  "liq/v1/date=2025-08-21.parquet": "5ccf5151fe30e0acb89ec0aa80f6e0f097ef854b397b16eb0b6b96bb6950960c",
+  "liq/v1/date=2025-08-22.parquet": "68283d14748a7b61eae78c895383d229abfc86b35d6853b3b346671a845cdb4e",
+  "liq/v1/date=2025-08-23.parquet": "78862059d36f446161460a9686db0090987c8e03e10f90e6996e6629bc4a41c4",
+  "liq/v1/date=2025-08-24.parquet": "eeb04c181d848efeefce45843ed6e708e9a9da1d301d075d4c8f99fb09a3be33",
+  "liq/v1/date=2025-08-25.parquet": "2b44c66c7be8083f22e31bf98df555667ca862bb4483ce266fbf192b97ed31dc",
+  "liq/v1/date=2025-08-26.parquet": "c6fd9bdc65c6438eebd3ddb3de88f53cffb6d47a2c481da473d1dd343a593e5c",
+  "liq/v1/date=2025-08-27.parquet": "0c9fb0f898ff6e7d8c3a26cd26926207cc71e392a86abaf6162b7709e7dbbed0",
+  "liq/v1/date=2025-08-28.parquet": "bae0a67a83ce0f417d7874226a6031d3cd531d7ceb154f3874fd1d31f3c37a1b",
+  "liq/v1/date=2025-08-29.parquet": "779ebecfd361350a53959fbaa8bc66c34383e126656891166d70d1f4e9a2427c",
+  "liq/v1/date=2025-08-30.parquet": "7632911e77930bddd88ff4b538593e3d91c228e326a6f3db308a1a7a9fde5321",
+  "liq/v1/date=2025-08-31.parquet": "b04d0f8a33ec023e2c80c6cb3a397dd673a24ea8084c4e43b8708f639ce9f61e",
+  "liq/v1/date=2025-09-01.parquet": "9e4cf6d241e081c6daa74bab806f6fe8e265b43df1fea72aedbe1060ad546327",
+  "liq/v1/date=2025-09-02.parquet": "65ed6ef84d252e9e9c1e614285747d02e0fd777ab218d5ab6fd62a7688428b9e",
+  "liq/v1/date=2025-09-03.parquet": "2d9d7e3ae9a02626737d764b6016a8f424999709bea2bdbb8cf38d49ec28b719",
+  "liq/v1/date=2025-09-04.parquet": "9977c6400ac872ab9989e19c3846d7b75b48156d14de94731503ba0c31fda3cc",
+  "liq/v1/date=2025-09-05.parquet": "2f07405e7fe3fa36b844c0b14774dc1ecd19a7aa759c4749d630e1bfd9a18c7e",
+  "liq/v1/date=2025-09-06.parquet": "fad7a611a6f4c1a95f12f2ed93ff19a80d2c8210cd5fbc3d0f9d2613365b7f62",
+  "liq/v1/date=2025-09-07.parquet": "4f23eed7cad48544dec4f32cde7456198cf57c5a7a3ade9a40933f93e93eb4d8",
+  "liq/v1/date=2025-09-08.parquet": "00f7c56ba67acbc727a0721462142909ed8bd351c3a5da6016f12a621c7c8e83",
+  "liq/v1/date=2025-09-09.parquet": "7acbe0aaa5b7b9fc928698e6541f021a3eb9d529ab94e00375d020adcab850ae",
+  "liq/v1/date=2025-09-10.parquet": "5ce495aa0c44c8cd9bdf0d5dac0b0156ec13cfbc3076eab0e0403c48fa5f68ad",
+  "liq/v1/date=2025-09-11.parquet": "7e3c004419ac274370961a324ed962a0bed2624f389db252ecdd3272d118c7ec",
+  "liq/v1/date=2025-09-12.parquet": "e7f842fadc82972286d0336ff396c7fdc56aded6c628182084439d18144a83c9",
+  "liq/v1/date=2025-09-13.parquet": "1eb7413114f1d8cea431f9cbe69301213a31c505da35763a75399cfea52af34c",
+  "liq/v1/date=2025-09-14.parquet": "8c9265739b5fa25e731c54f4a8db04aeec126829eaee1e179997ae8b87d8c327",
+  "liq/v1/date=2025-09-15.parquet": "fd93413d0be0b0039763ff4e55e1f01e85c8212571222ff62b48c5e308009de1",
+  "liq/v1/date=2025-09-16.parquet": "59db44d5f3623c92acaacea28debfd14517511fbd429680d25857f11858cc778",
+  "liq/v1/date=2025-09-17.parquet": "bd88bf5145a8ed2c8c5420f0231d157678958d31928ef51b0cd8d07dc08e9865",
+  "liq/v1/date=2025-09-18.parquet": "3ac500d88051a71156e8ee40538f8110934f3a8bf2883c777d316ca01ae8ec6f",
+  "liq/v1/date=2025-09-19.parquet": "fb60f3366cc89f62afa30950e14ad27819e370d3fa40573943193fac20e648a8",
+  "liq/v1/date=2025-09-20.parquet": "58fdd718d585975cfa25d0c4023a84855c46e19a12214940ef4240392a7817e2",
+  "liq/v1/date=2025-09-21.parquet": "58d63a509d705e3371bb00231d40250719f542c97cbe4b530c7cfe59441cd42c",
+  "liq/v1/date=2025-09-22.parquet": "2d47e80793650154f9a3e05077b597d468aa605ce8cd9638f0de211f09c314da",
+  "liq/v1/date=2025-09-23.parquet": "7392a49d6592dac720cbc7dd3659c6a922e97039f8a3d24603e90d081df8bb07",
+  "liq/v1/date=2025-09-24.parquet": "d47beed9faa5c2b8d3707c806111b025b382d92ec4cd9890fdb8c8a5365b4815",
+  "liq/v1/date=2025-09-25.parquet": "9a94fa88989e6057d3f0295a98f14110d6ed16f0a2860908cba2916c873a1c42",
+  "liq/v1/date=2025-09-26.parquet": "472a356cda6de57c81de1ebb386263924120c1ba90bd4d3400c331fafea2042f",
+  "liq/v1/date=2025-09-27.parquet": "d1fdf5166959ce4aa85a89bfb411fb726bcc9a6504255dc6f8e31ba7c06d1814",
+  "liq/v1/date=2025-09-28.parquet": "9ccbaae417b7bef6404125a35c59b8d12343cd590f98093120337efd54fbcae3",
+  "liq/v1/date=2025-09-29.parquet": "88d404b0d5b5a695b6026c923d7b9460d6860eed87ccd6b67e98264e6428268e",
+  "liq/v1/date=2025-09-30.parquet": "33206410eb18be76c35f3da7d8926b17168aa7895449a63206d07f29a0b015a2",
+  "liq/v1/date=2025-10-01.parquet": "ef4abf64364807696422e8938c482e309c4526cd1de6f768f6528e167986c3ea",
+  "liq/v1/date=2025-10-02.parquet": "a2c472f326bf2ccf359244ae6ba44a7cedc09e019794a146e8331f5e16bb4b7f",
+  "liq/v1/date=2025-10-03.parquet": "0ba3bbfe349b03a7b2aa192d7f95e40685ad3968d253e43db33c304a9a35c965",
+  "liq/v1/date=2025-10-04.parquet": "896be4447e849623b39dd209236e54849ba1c1ef55d7f448ecb56d1cc85dafbc",
+  "liq/v1/date=2025-10-05.parquet": "e56c455838baf85965e3cdb1c3d62f6cd6ea468ba68dbdc461722df708be4199",
+  "liq/v1/date=2025-10-06.parquet": "9cf418f4133e04d35c7406514309633516e2eec4e3e6f17818d3948cd5236d6d",
+  "liq/v1/date=2025-10-07.parquet": "d7afa072060cefdc894c314294ed6056ffbec8da87f5e9ea6f90674e18c5876d",
+  "liq/v1/date=2025-10-08.parquet": "07f099d1c3eb53c50209c00492796100fa6425e015e7155fb20908c126baccd4",
+  "liq/v1/date=2025-10-09.parquet": "0a875814fb360dee7f1f81362cd9deb54255837122bfd59a61a07130ace050cd",
+  "liq/v1/date=2025-10-10.parquet": "1301ca4b705a7c4fa8100cd30d4ec21807dabbc1bf8bf3e497292e4ee422efbc",
+  "liq/v1/date=2025-10-11.parquet": "8d385200ec1abc613214e07554b0634b28ef44be5becca6c96cd1387c651332e",
+  "liq/v1/date=2025-10-12.parquet": "3063e0ad93b1390405fdec198a704f477445da9257e6266766c9959327ecee8a",
+  "liq/v1/date=2025-10-13.parquet": "bcd0aab7d30c46a4d11506b966b76bff42919285190161a654f6da897b6f8729",
+  "liq/v1/date=2025-10-14.parquet": "a05c92f0c4da043e618b8e9dabe3be4199a4db46fd9bc9ef882ad80980a9f824",
+  "liq/v1/date=2025-10-15.parquet": "19dc97710796336b8ba5f41b5cf48fbdc1b0cc7335a95666fc77d1363d300d1e",
+  "liq/v1/date=2025-10-16.parquet": "b12a7b4f100d0b7c115f0f86243fb12f8f90fb8a7eb45dde23bf420134e20fb4",
+  "liq/v1/date=2025-10-17.parquet": "43f5a8bb96e51604106d1689aa875503ad5737440ef843de93ae1fbf9aa65bcd",
+  "liq/v1/date=2025-10-18.parquet": "54d09f70763cfe8aa83eb6c29ca9fba8050d45dfe50d4b56af20e8fce194e36e",
+  "liq/v1/date=2025-10-19.parquet": "cc2af4dc8b2e4060937b72abe15a2d85cdceb5e8284e1963699d14de87069d5e",
+  "liq/v1/date=2025-10-20.parquet": "bf0189b00cf273f70ea39eaecf3fcc58dcb39d67ecc8d830d3b6ae056983d848",
+  "liq/v1/date=2025-10-21.parquet": "40a6c0badbfdcd2b8ab0dcd9ee999fe61f73b479ca61200a2db27834943cf9ea",
+  "liq/v1/date=2025-10-22.parquet": "178c6a495ce36d1e6e23df93912c771383e4ba5bd8479b841d9c429e7792e4dd",
+  "liq/v1/date=2025-10-23.parquet": "c69000f7650b843da0fff070c3a72d59ce001e1bee78ad710b80f06c22d3c070",
+  "liq/v1/date=2025-10-24.parquet": "3b1fbbf78a96c7e31ad8cce2053ee31d71b61d1f8569d92c441e3bed41a21909",
+  "liq/v1/date=2025-10-25.parquet": "8e9ae66c838d327331c9fc39bf232ac7bd2f6a672d1a67e72c065d47c65de572",
+  "liq/v1/date=2025-10-26.parquet": "71cfc2f5d3eeb2969d69b5884c43ba046a8dd2cd185437c841a02ef31f7aaa13",
+  "liq/v1/date=2025-10-27.parquet": "ecde03033c0bb3f5e56a3a1b4d70d65d5d80b475bce3a38e7bb524aefc9b04e1",
+  "liq/v1/date=2025-10-28.parquet": "e229fb86ce6331c69af575b8ce6eea63fcfd7f9104e70b75d58e3b773098faec",
+  "liq/v1/date=2025-10-29.parquet": "2e711028221dcf60a96305d192bd90a4efb59f808e8ea0e3e4aca0be68751c33",
+  "liq/v1/date=2025-10-30.parquet": "2d7bf8ebfe32178533203505cc64d100d1905f0216721e3aebdf27526c08f3d8",
+  "liq/v1/date=2025-10-31.parquet": "e6d8cc07f75708e93e13084b60914e8031da930f7db2ddab2ba760c87bba5c20",
+  "liq/v1/date=2025-11-01.parquet": "63a830e924c2340caddea0478518826fc8da104ab50c34d9c683ceb6573285b7",
+  "liq/v1/date=2025-11-02.parquet": "9e7727ec8eabadc7145360f77a21590038bb27449c51ddbd8f79427cee358ee3",
+  "liq/v1/date=2025-11-03.parquet": "7e4a3e4dbfa88e25731e7c6c07c27e59b130c2f4db251a4f70b20dffa540e504",
+  "liq/v1/date=2025-11-04.parquet": "681e705f0bcce9de7efb13f64741a679134fbf7bda6dbd45a4894942df041b64",
+  "liq/v1/date=2025-11-05.parquet": "3ead6aa605de1b33b2d304efa6495e143689b6d5bbe1671478a8e0da8550910f",
+  "liq/v1/date=2025-11-06.parquet": "89a0669f8a61dba3837bc0a7ccae99158f3179ddb60856e8bb087854fdd98db2",
+  "liq/v1/date=2025-11-07.parquet": "fae1a8e69a84ac978ce3652d05eb755ea626a5c2459d9abd4bb9ac1d5e106f34",
+  "liq/v1/date=2025-11-08.parquet": "2f84ad526b874a133858888e5dced5527275bdb16b0ee108ea2e7459410505bc",
+  "liq/v1/date=2025-11-09.parquet": "c4c4331e00c066859cdca3926cdaec335839553a405b523694a19b2d2bd54272",
+  "liq/v1/date=2025-11-10.parquet": "074656d2de55a6828116288f0f57b2a0bc32f32e59144d4215451b8d0f804bcd",
+  "liq/v1/date=2025-11-11.parquet": "36a11f1c0e0e3d7ae4ad96fed652bde1d9a5ca1ea36ad220d42d32f30e942217",
+  "liq/v1/date=2025-11-12.parquet": "40953dfaeb069150bfc6677995fb1c3774285cd1717a8e26a17328de8dc52ace",
+  "liq/v1/date=2025-11-13.parquet": "b1bd1e34f478e345a235d1a8e538cecc43c02044c433d1841dad4ece4efa9b02",
+  "liq/v1/date=2025-11-14.parquet": "126bd2325165cdbd755451f76b5bc56d7d0f466c34f66be017d0e610c66c71bf",
+  "liq/v1/date=2025-11-15.parquet": "593d80635190579f7c3097bef8a8130a9215f292ec0299251bb3d9cc36e7aad1",
+  "liq/v1/date=2025-11-16.parquet": "6e7510c7c895c386b7e98489cd46a80c1b1ce709a2612c34378ef91d6c9287e8",
+  "liq/v1/date=2025-11-17.parquet": "e0f0a0f4fe6b42c32d89ed391951d50d31354412e7ea43036a6bd7c245894d48",
+  "liq/v1/date=2025-11-18.parquet": "8c2168fe8a2b415e3db45e923a0c978d017cd6536f06618f82f7681b7058b4ef",
+  "liq/v1/date=2025-11-19.parquet": "09227b793f1704493fc5534494f8c7144fbdd2f8cb74b5a605ad6bf29db5bd4c",
+  "liq/v1/date=2025-11-20.parquet": "8ab300508de877697d919924770bfc09d947d1e53a525644e724e4f8829377bc",
+  "liq/v1/date=2025-11-21.parquet": "3629ab445006c994520d4e184846d853cc13e0f63d6071085b62372ffdc67211",
+  "liq/v1/date=2025-11-22.parquet": "7f5d5753c1fd12d36e460e4cff9ec1367fc773c6c429a236bcf27677e0447f0a",
+  "liq/v1/date=2025-11-23.parquet": "ece996aa68dde060111bfbce70e707b45739edbdc152c71bb59f523cbb3581c8",
+  "liq/v1/date=2025-11-24.parquet": "8a7dcab9c77af33733bc9a07d3b5e094c79637699c78160d6a13bc3b3508adc5",
+  "liq/v1/date=2025-11-25.parquet": "db8adad8c9e5b567ce41467854ef55142c91251f5f2d43d8f75d994df01486b8",
+  "liq/v1/date=2025-11-26.parquet": "9e8f2f7d09facb2471f3b72eb55e5d8b00d2c357ec9e3d2cffe75091113a80b4",
+  "liq/v1/date=2025-11-27.parquet": "046f542e5ddd451a25b2cfcf324a85bacb6e2d2f969cf2641f29ba1ae26db501",
+  "liq/v1/date=2025-11-28.parquet": "fc60f421a1536419fe8b99526a33d4e9b796ce4292dc2c5181e95b838df45cbf",
+  "liq/v1/date=2025-11-29.parquet": "be1f02bf59402b342ff029248fbde844511bd9c880f2f1efded76c0d728e64bf",
+  "liq/v1/date=2025-11-30.parquet": "e5486169e01922d6bacff1f77f6e51c5fca8c967d5e88b285f428fdf8a7b5002",
+  "liq/v1/date=2025-12-01.parquet": "3d996118c672b03f93dec228b78de94b699ca4e72a5753b42448ca912f5958b6",
+  "liq/v1/date=2025-12-02.parquet": "6cdf4747f73b5c9e66d42233db113073998fac56e1f7a9b39648845abb823e4d",
+  "liq/v1/date=2025-12-03.parquet": "15515e0d20b2880cf28f7814c1bb5d58817d1ed651f5cdd8280806f88effec4a",
+  "liq/v1/date=2025-12-04.parquet": "717fb99e28f3f0d6d4e4e633fe3a553603c913bee2dfb284c898ff1ed83a5ea7",
+  "liq/v1/date=2025-12-05.parquet": "6bc080356266562ff9de688f8af0ed4cc2a1359587befa0ad8c3b7140b2b1e93",
+  "liq/v1/date=2025-12-06.parquet": "88b63dba3a627134aa3f3bde1593ec864e234a1c3d3b553dc7155ef7c6bc9359",
+  "liq/v1/date=2025-12-07.parquet": "347dceb20f700e8d4fbf8a8711cdad4b4b8b3fc374ddf3ccee4b84b419b10a54",
+  "liq/v1/date=2025-12-08.parquet": "44a78b5ad5cc5320aeb0174e60e198ae8002f0a02e18457387ac598b1eab73de",
+  "liq/v1/date=2025-12-09.parquet": "90d4cdb78c12bf5f1b8a8927bc7f25e421ea6287d5c7a8c246adae84d81d5241",
+  "liq/v1/date=2025-12-10.parquet": "ece125d79573f6aec2cf47d7c9473e391004b0642848f4695aceabae95ed7f91",
+  "liq/v1/date=2025-12-11.parquet": "069b9dbc3e2e333c12d576cb049bcf7f3455615738e69dd946715d44ba2accc9",
+  "liq/v1/date=2025-12-12.parquet": "b686b7290446775ad864d5df062a7378eca400da2d8338a08f7e0e13d1346762",
+  "liq/v1/date=2025-12-13.parquet": "c744ab64df854c2fb7d59361ef70f4a7d2f8d63ad8f4029ffc90b3bc90bb44ae",
+  "liq/v1/date=2025-12-14.parquet": "9bb355d099999cc743225ddefc7ca5a730b0880a2741fedde3ec62729f7aba00",
+  "liq/v1/date=2025-12-15.parquet": "e4482b15a1ccdec8cf627f85fd87430d73c53c16061d84d480c465156dd9441f",
+  "liq/v1/date=2025-12-16.parquet": "74df18792283404718bfca19e371d3b70377312ee576b847e27a2f3ae1beb7b3",
+  "liq/v1/date=2025-12-17.parquet": "b755a481aa0b3c202703809d2e82c5b1f000b7875e35b47efa6884aa1b4c4f01",
+  "liq/v1/date=2025-12-18.parquet": "e7e3b2c019beaa0a7660b35077927e9b84b1aee3a32dd5a11127ab5cf50a6e4e",
+  "liq/v1/date=2025-12-19.parquet": "78e34a223f158dc453fc7f5aa3af951c9ebb9ffc88286b7598ff3c1d343a2aa3",
+  "liq/v1/date=2025-12-20.parquet": "7a5ce6f82a10694bdd141677062816afb0305a97716bb14e6b31a7497a660237",
+  "liq/v1/date=2025-12-21.parquet": "3ded6c114bc841f1550ea9b6d0d3b21b356f5445fc403413931a94e000818cd0",
+  "liq/v1/date=2025-12-22.parquet": "592cbf2a689daa60cc5ff0dd0cd1827493534b7f52f779a14fc607b9f202274f",
+  "liq/v1/date=2025-12-23.parquet": "598ba591dc65c6dd6fe5e61e6a8e6e65f1871d7a0fa73e0f5fb7b065748fa3a5",
+  "liq/v1/date=2025-12-24.parquet": "edcfb38ea010d018493b6e38988690f8fa71d1fd713bf53468f150ea90c7f0aa",
+  "liq/v1/date=2025-12-25.parquet": "e00088c15e512e6cd40790a25f818b7e93055974caf54d98d92274e3d626c027",
+  "liq/v1/date=2025-12-26.parquet": "18db19c7e98f22d8ff409d0c3b121daa8da500501d1f25f5bf17521afd8ea847",
+  "liq/v1/date=2025-12-27.parquet": "01802afc760776f8841c8ae20daea6bcacc61b4e2f3d80941bd64710f7f657c3",
+  "liq/v1/date=2025-12-28.parquet": "9ff7526b7861f9414ffe80a3950ddcd822a6e52bb500a658cbfd553ee913ee77",
+  "liq/v1/date=2025-12-29.parquet": "81f2725fd84751a6f8cb5c60533b6a1267bd03459f763b8ef8fde076390455ce",
+  "liq/v1/date=2025-12-30.parquet": "eb45f3975ee97e6ee7710a3d660cf264f8a96eafb968eb0c7e6103cdafdc8b83",
+  "liq/v1/date=2025-12-31.parquet": "8ee67739d8173dc20bc6a71711b8741cc4efbc8841d11cc3760c579fbba33bb9",
+  "liq/v1/date=2026-01-01.parquet": "9634155e5541fd71ef1a36b5e7aa736e88854cd1b12e67319c617e3b68fc1c88",
+  "liq/v1/date=2026-01-02.parquet": "c8010daed0bcf0dcbe5a05587b85b1e1b360a3ee12379d572faf75e3037b4a8c",
+  "liq/v1/date=2026-01-03.parquet": "56f4812b62800619414817d6dc6191badea4acdf8d0a6dce0b5f5f0ca3b096af",
+  "liq/v1/date=2026-01-04.parquet": "aefdeb97bfdfa1ff3c24cf83a1c98f2e217edb3339b0952616928cdd983e4b66",
+  "liq/v1/date=2026-01-05.parquet": "5217005af56f28281293742469b5d92c8ce7f81517731ab0d05fb385f3897175",
+  "liq/v1/date=2026-01-06.parquet": "64370fd5100ff3de675c4584fca80bf5e00fa53b8a5b4c027b4528f22589ca12",
+  "liq/v1/date=2026-01-07.parquet": "e489a44e9fe84057425f8ff4ac23114286f5b9dcc0674d13dd8391f620dc065e",
+  "liq/v1/date=2026-01-08.parquet": "9c80553997d2ed34ec4fdd68e4a5990cb366dd2747ffd04710bc12d21c475e11",
+  "liq/v1/date=2026-01-09.parquet": "5d068de76f58c4144e29a9b6afa8813185e546261f94e0f1029c191eb6c63937",
+  "liq/v1/date=2026-01-10.parquet": "2fab8a91feb5fe0045fc7ad744f9fa8111555f800f83d3e095ed4053658b3add",
+  "liq/v1/date=2026-01-11.parquet": "c6174ff7471739b0b59d2b729cd703cae8c8dff10d25c29933789e1f6f99a24d",
+  "liq/v1/date=2026-01-12.parquet": "a581b6f12262dd10304214beb58c953e7c06b6a89d42177ad1151179f9ce66d0",
+  "liq/v1/date=2026-01-13.parquet": "6151c9019d7ea7cd47500bfc1cdc4933ee871d59ba2289ce41244cf862de6cb5",
+  "liq/v1/date=2026-01-14.parquet": "bd9f00b569667ea3dbe8112d33b83f7fe2b0d5fabb4378a75ae23d81ae0d3db1",
+  "liq/v1/date=2026-01-15.parquet": "22ec677f02a03e5a5646f14cabc7be211279b8820fb92727defbf4f9d1f94949",
+  "liq/v1/date=2026-01-16.parquet": "31647b2b53957fa3027164e43dcb7dd64657b5e6e25a70d40612013baba45ba2",
+  "liq/v1/date=2026-01-17.parquet": "0340fd8cd1cc2f86785a6a0d7eec41eaf6266e4a8fb341f0706dfc489fe514c1",
+  "liq/v1/date=2026-01-18.parquet": "510723fbe95333ef978f51bbd037ab6645f65bbc96f79cfbb489b1d2ea27dc7b",
+  "liq/v1/date=2026-01-19.parquet": "f24bad0786fc8ef8ea2d4cdbfde59ff8c8cf92f954f8eba4a8d155034f2f48dd",
+  "liq/v1/date=2026-01-20.parquet": "23ac3f3cbdc6d7945759213e38dad454e80f34a34d503db4c69f3f8431cb9eb7",
+  "liq/v1/date=2026-01-21.parquet": "e41e75899b6d5ea0cb98f50f0ab0db6871a805b4f3fa2254e22b1c1a72cd7b1d",
+  "liq/v1/date=2026-01-22.parquet": "cfeb39ba185f06d2c45f1bc152f1a50552bfa69a85a46e79ad51dad5d80a08b9",
+  "liq/v1/date=2026-01-23.parquet": "be1dfee085c68fad54bb1d924a326e69b86cb06be235a20ea5c2c1c02a7fd10e",
+  "liq/v1/date=2026-01-24.parquet": "d9f6d82b4238f362fda7b1b0c39dee50beb466cd9517c9361ab1616ddaa121ec",
+  "liq/v1/date=2026-01-25.parquet": "d853f664b92a23e8a16f6475a47bf1da172a381f25a52e0e5beb83dc52b61cdc",
+  "liq/v1/date=2026-01-26.parquet": "7836891f60e49ec14a8238e94fd163b940e1f5e95340095ade0498c6bc3839a6",
+  "liq/v1/date=2026-01-27.parquet": "d762b8963620aee3d821776d99f4c2471bedefde499bbe9d7fecb6789b1887b1",
+  "liq/v1/date=2026-01-28.parquet": "ae630ebc39a28e832c450afd04559cab00189e772fe053854248850c4c18b7c0",
+  "liq/v1/date=2026-01-29.parquet": "47a8811fc023819dd879ed48fa27cbd66c1d66a1ce7f004c865f07da6db8caf8",
+  "liq/v1/date=2026-01-30.parquet": "3f5c2dd6b80b202ae412c61ed97b5da31dd096244d2aab583837d5ee0988dac9",
+  "liq/v1/date=2026-01-31.parquet": "a3f5cb9f2ff65763472ed6a82b6bfdfcd85020b4d2a54f256e488533fd72b344",
+  "liq/v1/date=2026-02-01.parquet": "9e87e9695202baccb34dbbdf110ce456177cafa94439686b0e8de2f38c7da649",
+  "liq/v1/date=2026-02-02.parquet": "e1d3c2e29c915eed06f5593339b45d592c26a4f250da64cb59802d6f91300f9f",
+  "liq/v1/date=2026-02-03.parquet": "3340e65b214c2eacc4cf127cc239dadee760ad325fbec1dc2a601b3c8119fed8",
+  "liq/v1/date=2026-02-04.parquet": "be3bdd7166286c8cb269a15b505ef3b8a556ad02766fcaed60cd8b903c4896d7",
+  "liq/v1/date=2026-02-05.parquet": "e406f7b6d27bb964e1fa36092158b31e75bf3de668b9e0c0bddee6d37c2447f0",
+  "liq/v1/date=2026-02-06.parquet": "cab91167d60179e9428fb9d83dae844a9f71d805a630381caab71a4ddc08426e",
+  "liq/v1/date=2026-02-07.parquet": "e7eb863410b1027ee34ea20237912d4d24b847c08372beb3b11a8a85117b393d",
+  "liq/v1/date=2026-02-08.parquet": "27f4b322f32c386230de2a4cf570ee99c2630240f1c80f2bff6f37aa1ae966eb",
+  "liq/v1/date=2026-02-09.parquet": "f14b17d03825b3fde116f8ec5f8838fa956bdc01a4e73452f75c125aea4bf200",
+  "liq/v1/date=2026-02-10.parquet": "d06586949b1bfb760884a63fbb8e78c986d6dadcbf0cb2aace00dc2475dc525a",
+  "liq/v1/date=2026-02-11.parquet": "86b1b1ae9053be10e4c34759b007b23d113e4ab2129ce1c62eea0e0ea156748d",
+  "liq/v1/date=2026-02-12.parquet": "d3d38e0172b112bd1d76dfa89695ca27b5a3ca2a0d4de9c4f76aecde524d2c5b",
+  "liq/v1/date=2026-02-13.parquet": "a0cc5fffb997005ff3f14197ba472d8ddcf2285b24cf42e57c5ab666eb558cfc",
+  "liq/v1/date=2026-02-14.parquet": "22feb76865928dfff80cd07cc34e528e59f9fc6cd85563dab4e90b9e163ca431",
+  "liq/v1/date=2026-02-15.parquet": "c85b17240ec1ca5e46a40bbfddd47e9ac4f58661b2aad7ffb9dcdca50a611f64",
+  "liq/v1/date=2026-02-16.parquet": "820342fe5770608dcd29fe9fa674caac4b4cf84efeb55d2ec18a1c085c2cbfb6",
+  "liq/v1/date=2026-02-17.parquet": "2e8f155ad2cc6a59169e30d9433b5cf96108bd4811e9adf8e7f7dcef2f230b91",
+  "liq/v1/date=2026-02-18.parquet": "fef5a022f0beebb03d60c246d547f7de3eadddf675f2c8eeb312182dc32ca75c",
+  "liq/v1/date=2026-02-19.parquet": "b1031fe6fb2c493418a87c23bbc1413fd4079349aa84f427157cab79168fdabd",
+  "liq/v1/date=2026-02-20.parquet": "f8c513d77016633d75e0897c7311519cf9f5a8e197fda35b52b2570e7a41ca2a",
+  "liq/v1/date=2026-02-21.parquet": "ca020473531a3d811d09db3bffcc728747d142419cede7b8c3ca6324bd63c13b",
+  "liq/v1/date=2026-02-22.parquet": "586ac429ca8a95c615473f30cc3be0d77a456b9d486585de1a1cb6fd3037d68d",
+  "liq/v1/date=2026-02-23.parquet": "2d2e20d8f42ff8a5a1e1f50007048e896e8ed3a6776e7867bc10924cd6878a4c",
+  "liq/v1/date=2026-02-24.parquet": "2b0bc115c2be1ab959b36929a5a6806390c85c17f0a7f1fdf1d3a26b2064c178",
+  "liq/v1/date=2026-02-25.parquet": "691dfff48c93a1f27e7facac1a49869add074385fac7e71bf3876c345e1c721d",
+  "liq/v1/date=2026-02-26.parquet": "694f22bc9e1daf4665c4a2c2597895e75d287d3644609f8bdb8659c7b184b75d",
+  "liq/v1/date=2026-02-27.parquet": "15250ad8e6c57fc7b064a690a4fe730700a9855ebb66aaed09507fd5aa4495c6",
+  "liq/v1/date=2026-02-28.parquet": "697074a691ed94052e1d3a202053e71da485a618b81d59de14d88142ddffb74b",
+  "liq/v1/date=2026-03-01.parquet": "b24bc8d61bbd9a1a124e4f162e7a074a221e4b7f11b04d85a18ffcad278a0cbc",
+  "liq/v1/date=2026-03-02.parquet": "66e6932a50d53e08ed148b6354c967d0673747c5d58316be35f6fe9b7b474146",
+  "liq/v1/date=2026-03-03.parquet": "b2972c6125a945ed8f1f26684d39e4b08fede440e90eb044ea4ba07c4ecc1b6f",
+  "liq/v1/date=2026-03-04.parquet": "cf62e2bb25b7b3c90a930e4d1962d1cf07530fbef550c8df60d895f6c109a8a1",
+  "liq/v1/date=2026-03-05.parquet": "b3cbae0f0fd4e986dcb2c9d16b77801e05ff030d5c8e60160814a98a5012cbb2",
+  "liq/v1/date=2026-03-06.parquet": "2a67a5a00f4ccb3672da59caec897dc97608501cc3fbf077bb9be4a8e96cbad0",
+  "liq/v1/date=2026-03-07.parquet": "762b273a53dcc3e1898b4df1d66ae147d7690b57ac9c6bcb34bbba2e456a27df",
+  "liq/v1/date=2026-03-08.parquet": "e5e1bb608a4e1c97ff28c189a7a14311a0c21fdb0afdb65aa195a68d3a2faba6",
+  "liq/v1/date=2026-03-09.parquet": "88f70ef71ac374c534295e43ea4dbd6507f2a6c2b1e706bd3cdf1009262a4945",
+  "liq/v1/date=2026-03-10.parquet": "510e332549a68d1bec352f3a9e92d6941d12b5c222a57753df0b995d9a81f5f2",
+  "liq/v1/date=2026-03-11.parquet": "d0d4ad1a4e713543e588c15c4912f113585977cd359151e787f6d5c480cde530",
+  "liq/v1/date=2026-03-12.parquet": "9eb89cc84b4c3a644a45c4002eff22f88775e4469288b772f4f7e665d584c910",
+  "liq/v1/date=2026-03-13.parquet": "15c7593a92f6675bcab6ebfbfea55b4fbfff4d7a986f01fccf1f7e5d2f316532",
+  "liq/v1/date=2026-03-14.parquet": "82e152f9880cb1bcfdf4271a864a5229b5abd8032111dd0620813bc9a30aa59b",
+  "liq/v1/date=2026-03-15.parquet": "8bb4f87f9debbe32deb30c1ef233b2c8f78acee7e865f1becd525bedb0615b2a",
+  "liq/v1/date=2026-03-16.parquet": "f335fccf15164049415934180f88e69e90f842e0247ab327edfdb0a7a783eaf7",
+  "liq/v1/date=2026-03-17.parquet": "2a349e29898de6f9110e66ef51e93f349f319b4f8edf76f39f56837054fbd505",
+  "liq/v1/date=2026-03-18.parquet": "6a9f1fef9b16a8872f1d7635357b59f5558052d963a00d9572561ecad0952021",
+  "liq/v1/date=2026-03-19.parquet": "8d035dc8647ae8b86d11093d387f406ccd361b858304df748a915417bc6c7db4",
+  "liq/v1/date=2026-03-20.parquet": "7b0f4159b530119d331e39f97b09048183bf75422d3dff736641976c6aecdf8a",
+  "liq/v1/date=2026-03-21.parquet": "c86fe28f08b3171ea282138e6f09e950e6173f6a8eaf721e6d2cc4dc9ab9f781",
+  "liq/v1/date=2026-03-22.parquet": "562b76ff71f67e51dc13137de0c5c9547ea2ca2c25edc4d479620ef4f9746a6e",
+  "liq/v1/date=2026-03-23.parquet": "4a9ab5e32ae275ca670edc9e0894ff6e06bc6c9861d744b153c32e2ce79d9013",
+  "liq/v1/date=2026-03-24.parquet": "dcc5eb8b88827594a196b967c1ab902bcf4696d0c542161c4606608fc0665711",
+  "liq/v1/date=2026-03-25.parquet": "3dd13ad5316ef944aec2aebb9c80312fd63cfa26c2e15af1039767356d519729",
+  "liq/v1/date=2026-03-26.parquet": "ae28682cf339a6485281f2bf54890f25be7fda26c6be959fb251517694bbf929",
+  "liq/v1/date=2026-03-27.parquet": "9f389e855eb3b3d2e709d270e9341466dc7980878ae4c2fcdd425986e04293fc",
+  "liq/v1/date=2026-03-28.parquet": "eb6453219907aa0c3b0aea09dde642ac324fb11fb257fdc988b1da4a15908bed",
+  "liq/v1/date=2026-03-29.parquet": "376e10c0cf8ef430d2a2d978de74704dc1917f326a5f1c038857f8f57cd3653d",
+  "liq/v1/date=2026-03-30.parquet": "0cd72fcfa690dff73022a0b5a61c2aab5310f65c02e5e494e9e5bc8c6ca57df5",
+  "liq/v1/date=2026-03-31.parquet": "fe5f42a7a87ddcd7b52af12b7013a3227c05fac4864062d660f80665efa416ae",
+  "liq/v1/date=2026-04-01.parquet": "33415523658d6d80e96b580d9828d92535e7e998072048dbff7e5f6a77f2a21c",
+  "liq/v1/date=2026-04-02.parquet": "79a31f9c0caccbbc202863f3b960aef0998e85434aa58515e436546ec911b5bc",
+  "liq/v1/date=2026-04-03.parquet": "56ecc52edcd3514091cd895a906056ee2018f862ac839b134f27cd72942e5275",
+  "liq/v1/date=2026-04-04.parquet": "759ab839313f14f1901462194816e028c9a9562f7d551fa37a1344d5195e9a45",
+  "liq/v1/date=2026-04-05.parquet": "a38bc47461c00f6aeb89db6988d387434ac40af6dd98f8378aa8492ad4195d40",
+  "liq/v1/date=2026-04-06.parquet": "647d25f12c94be78e1c9ddcc4db3586308789d4516d9cb5e977d59f9212d549e",
+  "liq/v1/date=2026-04-07.parquet": "439561da06b06e166118a578be25ed474e3656deac77499c1b44f9f59f8415cf",
+  "liq/v1/date=2026-04-08.parquet": "b7a509a37e257608930d7f827bd1474fe6a71f938c4a36aa294d6c19ac8c5798",
+  "liq/v1/date=2026-04-09.parquet": "1cdee48386f6b53233155da1cecf4e73a1dea2ef57375924aecbca5c537f50dd",
+  "liq/v1/date=2026-04-10.parquet": "f920bcd4322ab5bb93316d57e42d4899eae25e79177b62011b0f806456ae9a82",
+  "liq/v1/date=2026-04-11.parquet": "6f0b2b2e82c576fd5cfe7d7024419009f7568df4365d2a7b75e1cc2be49edcc9",
+  "liq/v1/date=2026-04-12.parquet": "4dcc60701281f3166aaa5178a29f835dd9cb277937b5cc0e67fcdc0ca076bc82",
+  "liq/v1/date=2026-04-13.parquet": "0618fd84573409e17ed2e7c486476eb0286886db0692f008a1fb10cbd69d0ced",
+  "liq/v1/date=2026-04-14.parquet": "f56e9a930036c9879e57ea6086ce8bbcf8920e10729620c0375d2953f81e0102",
+  "liq/v1/date=2026-04-15.parquet": "9ac8229d52d0774276bb2b4a69f2b471fb186c74fd9dc99e199b825dde43014c",
+  "liq/v1/date=2026-04-16.parquet": "1c2252e33ba5b3a0863f1fe436126e7fc697c576b312ca59fe48b2c752e5f443",
+  "liq/v1/date=2026-04-17.parquet": "7ff2dd87f3d09eb09b54583b6a0a36147f6c94af797f2819e950213f458972bf",
+  "liq/v1/date=2026-04-18.parquet": "8b9c9b473840070e94717cc6cd5d72016a1062c2bcde114ec08f3931ce6ac07c",
+  "liq/v1/date=2026-04-19.parquet": "812b09c204c1f68de42b290f5512f7e7f1f5e93741022fb6d351b482b40e655a",
+  "liq/v1/date=2026-04-20.parquet": "d3e23017b730d740a57e6a4b8bd39585d68f5a1916586e9d66eba0c1fde9f1f1",
+  "liq/v1/date=2026-04-21.parquet": "ddf4a42d105ffcda1d303c8bdcbe6d2eed399af4a3b57be96ff9df36b21e8cd4",
+  "liq/v1/date=2026-04-22.parquet": "f2626ec7f5ca95eeb4286dbdcce2295e4c2ae566e652d7bdc60bb65228a8bbe5",
+  "liq/v1/date=2026-04-23.parquet": "9e5ec88c34ede54c7a3bbd1bff1faa346274a9a444d5994b6f03ad1e83797ae1",
+  "liq/v1/date=2026-04-24.parquet": "2af74ceb1fb9f3f30eb38d341c0471ba7af534ec1ce2c37458f822437c6b39e7",
+  "liq/v1/date=2026-04-25.parquet": "3cc9b916389f6ff96ffa4a43943565927f1dc3ebf8c62dee997fd9b50aa3d500",
+  "liq/v1/date=2026-04-26.parquet": "5b038bca7027b855a94eff6a86a28243c90b80d7fda3bbb01f4a5ad1720bf31b",
+  "liq/v1/date=2026-04-27.parquet": "137562091574641602152a101be5d7db9efe54d16e29632869e3469ef232a226",
+  "liq/v1/date=2026-04-28.parquet": "8d4d1113a7f8ca7b4a4bb1def18f78c2158f92704a86a380a3493f5fee549637",
+  "liq/v1/date=2026-04-29.parquet": "30007de9ea22c50bb170315b2938a0a5c9a4a58d3747c895ca1c01c62e61aad8",
+  "liq/v1/date=2026-04-30.parquet": "b1f27efbc848ca33db15461483f9920cc1ef2975938282d09bb51b9597c7d0ca",
+  "liq/v1/date=2026-05-01.parquet": "60c14ffd13aea6c4edc45bf43be0d453570dff5c64a0013d7d92bb5ec5944b4f",
+  "liq/v1/date=2026-05-02.parquet": "d5f3badc7e7e08d32d3f3b0e7e38ca2032352faa013a2b64bd3904910bacd783",
+  "liq/v1/date=2026-05-03.parquet": "1fdb23acc92cb40dac703e5e2286d50eee810061e477be3b4481816de43cf807",
+  "liq/v1/date=2026-05-04.parquet": "c41154317177219e450566d10a03793f88e0c25c8fa14c32434170f5eccbedee",
+  "liq/v1/date=2026-05-05.parquet": "3d12f68e0659e99f358cf59bca99639e80911bedfc9554fe8de058269c258c8c",
+  "liq/v1/date=2026-05-06.parquet": "b76e7f9e22eeeafd71f3eaab9c63fd4a61163614531e6da291ff2bea5420b32d",
+  "liq/v1/date=2026-05-07.parquet": "0635db26a759c93e6fd3729ecdc428007f324f32e0631e3b1544b014c6962ce1",
+  "liq/v1/date=2026-05-08.parquet": "1be3642a6c7910786bdc07ad662c5b400674c661cf7cf0fadef0bb22ba9641cc",
+  "liq/v1/date=2026-05-09.parquet": "789e3d9549b46d676e551dbb87426ac8694eb7c1e29258898a05464c174262f5",
+  "liq/v1/date=2026-05-10.parquet": "f99644e0e00cd61bd0837dae2a2e4f862ef97fb9aafeb1bcbcd1f885d8e2054b",
+  "liq/v1/date=2026-05-11.parquet": "1cad9ec05ff6b0590c43d7aa129d6ae4df43c88116fc98f3852f017bba342167",
+  "liq/v1/date=2026-05-12.parquet": "11341a699059699506614488792c1d0e328054bb6b41cc6282b4d95f629a6b1d",
+  "liq/v1/date=2026-05-13.parquet": "21a7165916eaed0c89dbf1f73ce85e71b72ae10c63a69fa3cdca6f42d616584a",
+  "liq/v1/date=2026-05-14.parquet": "86de3e209864babf57239bd1c8168821e3c3fbca5545bd623b189e19c0467c62",
+  "liq/v1/date=2026-05-15.parquet": "960f2025713cdd0d53bbb4a27dfcc25f84b872a73138b3f10bde2c3b9bf9dc87",
+  "liq/v1/date=2026-05-16.parquet": "0c59c42af5d60ae9a8239625bab11428bb9ed6a45a67ff9b3ef1b12a3e7081ee",
+  "liq/v1/date=2026-05-17.parquet": "d3445473c00d054fb01620fb9e999211b76efd3582b47869a0f218385fd08faf",
+  "liq/v1/date=2026-05-18.parquet": "3f34ef5f3f5ca4b8b89c7570b8effffc81cf2f6c4789a002d4d79e8d39c663c0",
+  "liq/v1/date=2026-05-19.parquet": "c109d58cab9fe6dea5d5d3b5216464a34fdac5eddaeb6f7659cd8f5542068377",
+  "liq/v1/date=2026-05-20.parquet": "64f72c6df173cb90efe743373711dcf2488a7bc3a9526760dd59540eaefda204",
+  "liq/v1/date=2026-05-21.parquet": "723eac153e7b30ab265b79bbad96ba447defd24a84d279be481a2f03962b3b36",
+  "liq/v1/date=2026-05-22.parquet": "6e1a85a845555bd074e6eb02b05870f93f326e4bea26840e14402acb9348e666",
+  "liq/v1/date=2026-05-23.parquet": "1539938d5d45b1c66aeaa473c0d6fbf0e9e5052165c91d877208a0cf8c9047f2",
+  "liq/v1/date=2026-05-24.parquet": "2a979ac274c57ca7402f7b1fd584f412fd50e402fe9583d22983e421e5729eec",
+  "liq/v1/date=2026-05-25.parquet": "33fcee266faad38c9dc4fcbe1a5346622d17a3c72bbbe7eada7130d57b837cbf",
+  "liq/v1/date=2026-05-26.parquet": "812accfdf50809910d6830f4521102537a614a5d27de0a9fcc72247be299887d",
+  "liq/v1/date=2026-05-27.parquet": "3e266e7fc269be76ebf3aa77a39acfb0f1c2f5a598c6473a2dfd387c047d6682",
+  "liq/v1/date=2026-05-28.parquet": "90311aa2b0529583d6615948297db91356c1f8f2552ba15b5630fef286ded7f3",
+  "liq/v1/date=2026-05-29.parquet": "2d4f391cd08f27542e2af4aeefaba96af7c32115d4f674b522611267826c5b99",
+  "liq/v1/date=2026-05-30.parquet": "5ed6b5b57badbfcee6dba5019ed3f90a986122e66f60a8929dd7ff8bd86ca223",
+  "liq/v1/date=2026-05-31.parquet": "221edf8abe211d68de78a61e7e5e8c8c5e6d308f33335f488e317774a6e26cb1",
+  "liq/v1/date=2026-06-01.parquet": "d8ae35553accb8aa8c69b570f808cc1d596b3aa7e13149e9226b890e46a348b1",
+  "liq/v1/date=2026-06-02.parquet": "5d8c6dff5fad17885cd618a539383a34e9d73e05a871d142b32c361c43eb2aa7",
+  "liq/v1/date=2026-06-03.parquet": "7b0bb6c0738eb3293debff71afcbbc9541a40d4f1b1a9a901dc3fa9e9ca25e2c",
+  "liq/v1/date=2026-06-04.parquet": "179d704bacd1f495bc34aa07b5378208407c0dc3c6a8cc1a5b65f82d11a847ae",
+  "liq/v1/date=2026-06-05.parquet": "5252e104712ee119ff3c6aa5a39c014db2d1cb882fca662bf5cf2e5a4201d9eb",
+  "liq/v1/date=2026-06-06.parquet": "e82749c5680107cef357464cc5ef576c076ea98defdf1fa8dd0564ed6f78608e",
+  "liq/v1/date=2026-06-07.parquet": "3f88fbcf2f845099d83fe0f9b8f71f63f8dde7a2057e461dc731dc8c8304065f",
+  "liq/v1/date=2026-06-08.parquet": "34c127fef663afaf6816f87c4352da5f8eab036ee5097aedca70a29d543ffeb6",
+  "liq/v1/date=2026-06-09.parquet": "68509e741e8564a071b3df0201ab91cdfb3221ab50abf60975fb4f5ae42cac14",
+  "liq/v1/date=2026-06-10.parquet": "c77d59ec7389df99f8e2e9077ce27ca60abd110e6dbf9a6095255170e3fa6d90",
+  "liq/v1/date=2026-06-11.parquet": "0e34fbe3362c8b35dcf7ca69c5eb1c2ba20c6c0fe6468df45a0c56f6a0d137bf",
+  "liq/v1/date=2026-06-12.parquet": "abc68928575b8a6a34de2329b885f09a372e8a8fb0f0718718504f25edf5a20a",
+  "liq/v1/date=2026-06-13.parquet": "69e2aa237687941ba3474c1aaa9d0ca71713daf6f74f710b7255e5acde0e5909",
+  "liq/v1/date=2026-06-14.parquet": "4c790417a3a012c9121b1ab078337a5e48e50eafe538c799c99873f2fec8632d",
+  "liq/v1/date=2026-06-15.parquet": "474818c6b6e8a738305ae4d38739e0a2d7855ecf316bac64393d204126b7790a",
+  "liq/v1/date=2026-06-16.parquet": "ac84bf3591f9aa15753005779cc6651a7f8e2d32233260fdfea355a9da0eb48c",
+  "liq/v1/date=2026-06-17.parquet": "e2c7989dfda7b596c61b895cc62c90b370cb9f1ba23cc116494691b329dfcc74",
+  "liq/v1/date=2026-06-18.parquet": "d9870fa10c466cd05782b9d320b7e0ffdbece035b40beb9cf6cac3a047f45635",
+  "liq/v1/date=2026-06-19.parquet": "d66ffb21342f898aa612c010bf226778c31b4c6207233f458e0728a8d91a8f43",
+  "liq/v1/date=2026-06-20.parquet": "b6b5aa870cde8588a594cf33ba45d551453a7ebb4bca7390516f0421f649d001",
+  "liq/v1/date=2026-06-21.parquet": "dde815d05d8ec75fb03df50cab45f9537a0c8ce601b088b78fbaf85aa5cbe58b",
+  "liq/v1/date=2026-06-22.parquet": "0610134e579752905f55a06a96e10b2b0ce49b0de7ae504804735d894c2ebc40",
+  "liq/v1/date=2026-06-23.parquet": "748c48acac56b9cb014808332c6e104dfcd5239e856f712a7114ddb49654a2d4",
+  "liq/v1/date=2026-06-24.parquet": "2c5f221b35366b3f254f243ab7aec6e6b484d6a5bddb8a7103661bf76fbd823f",
+  "liq/v1/date=2026-06-25.parquet": "98965742fe114f470fffec67ba9a8807dbad67d27b0007bc1dea8e8d9736d952",
+  "liq/v1/date=2026-06-26.parquet": "4181b1dcabb2273b358e4649d0d2aa8d57ee01e2ebab9417e9dd502b2b1be957",
+  "liq/v1/date=2026-06-27.parquet": "027d1eb17a9699dc77e0c78018e50be3c1f1363895ec7a7fb66279b815c29b2b",
+  "liq/v1/date=2026-06-28.parquet": "65bdab3487f3319ab78f908e5f32fdef05595ce14c93e0554a9eb712d41ebb40",
+  "liq/v1/date=2026-06-29.parquet": "a012c5d3632554569c054cbafb2603fa194d773177c1ea3f0d4c79d93f138fd1",
+  "liq/v1/date=2026-06-30.parquet": "040ec7e324cd69d8e7f8c81588d8034cdb5c4a295371883169e2694bc64822e2",
+  "panel/market=0.parquet": "c3c454a37acbc3fb60a43dd393a7a550117d8e4a0693f52da20f583a65322ef5",
+  "panel/market=1.parquet": "6a145be39c79be8a1211f876d70d6eace3c4b7002d72e88ca3f8b4cf1082f539",
+  "panel/market=10.parquet": "99581435c28dc45787a0db821adab445db8a6b39250a6ce057e6a8f69bead51b",
+  "panel/market=100.parquet": "f8f9edac200235b252531f5a9ea32aadc8e8b4677809153fad9dc3813e294bea",
+  "panel/market=101.parquet": "42d45709a95c662a3f9b2799dc4b6a1fc7b440a0905e29ca48f4a4de01413184",
+  "panel/market=102.parquet": "5b352b5a83095fac68bbc9cdb9378f681c82855aa09740b32f30fe437d036e73",
+  "panel/market=103.parquet": "c0566dcffef0175379bf2611ea423e6ec860bc006cca09d5df5902613b421486",
+  "panel/market=104.parquet": "1071ccfcda2f2e6ad9149c0c7b9a81394c1e22e81398f3c3a1996aff4af20b67",
+  "panel/market=105.parquet": "20137457f346b74ee2b61ecc7d311e0c09ce53b7e17d9c9dac0ac417397cd40f",
+  "panel/market=106.parquet": "e05e7c0c8a54c65f3a072ce8bae6d52a057356e2ee64bc68abf85c2348fdc734",
+  "panel/market=107.parquet": "d21fbacc7b33013e2cb5fdbe16adf5f87cddfe3f6340e26af2501e957315b545",
+  "panel/market=108.parquet": "0a0a46d59fc0d20f3965ba69ded752f067b469d0d1d4bf7ea1073e6c5f22bb79",
+  "panel/market=109.parquet": "cc657492f68fc7492d0ee03659b159e0ab9d2d46e2aa82e08152b60b380dcdc7",
+  "panel/market=11.parquet": "9ef0c823d656cebcf3f6edce36b39475e5d3ce908017061fef72056f22698fd6",
+  "panel/market=110.parquet": "dd265c717611dfc2e449903fad549cbb608fc33ad6a1e2f1dfcc1a6ffe66ac03",
+  "panel/market=111.parquet": "9e10a49fd5315e3d87a994bddbe27ae9cd9e7fee5c33035a88279f59aa1dc959",
+  "panel/market=112.parquet": "a816748a16990cfb0c9a5893b94db374cc44da18ef67ae91476c87a5d3075451",
+  "panel/market=113.parquet": "e8e38d80281122b2b67e21edcb19f79a6abbf3359463c65266864e697b7cce6b",
+  "panel/market=114.parquet": "0a5203c00caccb0f6daa3d848952e6f1e3d8c01493c8603e5fce554ba06111ea",
+  "panel/market=115.parquet": "06dc3cf51d5e39ff84f0f40f5a6316808032e0bf554352df74ea2e965caf8dbb",
+  "panel/market=116.parquet": "6911ba97e1e6bd8c227833931040127f118d1e1ad8ada21d7b2751cc90fce534",
+  "panel/market=117.parquet": "7b9c0d45d2ebc059295cf828089bee746dcf54d232d42a6933f73f936ed4b6ff",
+  "panel/market=118.parquet": "ff3bd3c570dcee5046f7f36a85c409d8f9d0544600b4af68bb2f5d814f879c94",
+  "panel/market=119.parquet": "e992305bd8e6feb9b1d633a748b34f6d9b2baa9d3b9ec9ec26a858a4d839c4eb",
+  "panel/market=12.parquet": "5e24fc39378f2b7f2b661d111dd8f6a8d0b14214e4f15ec8b6f1faeed2245a77",
+  "panel/market=120.parquet": "5d3efbc21e1be1171c2f41be2c658bd2e37ca1a6f6d9efb7f4b9df29c24782ed",
+  "panel/market=121.parquet": "00ec88c13f80e614da0451286d2431862ff600c46bda909c612b4b34c4e7ceb2",
+  "panel/market=122.parquet": "f9bff1a4e4ec58b0edd0936c9059079e08973892cfc08671cb271bedd8981612",
+  "panel/market=123.parquet": "284461a8986fb6282363817d620c59100440d9c980dc51a18fcdcc1d11978b38",
+  "panel/market=124.parquet": "75165d557531b6280ba6781d675eb70c8642a8ef8005ff2d5dfeffae1c101ab3",
+  "panel/market=125.parquet": "3623cc8c4446ef3a9ab23ee02fd870754fb287fb085ee7386a0b7239c10c5e67",
+  "panel/market=126.parquet": "44a30c17042286030511c42c0f5d272903807b614f1d27bc24a686ca8c236f0e",
+  "panel/market=127.parquet": "8ace5327d499417436b30801b3ea0339c1d5895c8735c5f1befaadd6922ffa35",
+  "panel/market=128.parquet": "e5048fc24df180da46e5ad59caf55ae2e838d7158e7bd18cbc8c8e2b56e6bf23",
+  "panel/market=129.parquet": "10538af4b43a4ae26bff7a3ba988307076f3710e9dbbba727246bc33f7157a3d",
+  "panel/market=13.parquet": "7d3f29926206f5c42b261351b0495de821d1324f25ecefbd036029e72b18dc95",
+  "panel/market=130.parquet": "2a76f59625550fb02be8b25a723963a0b69014eb2e08af8e65b08568f63dbf82",
+  "panel/market=131.parquet": "4b8c138a510e92aab5b913e88a6a374dbc9418e2f71d9d514cea5aa949e9ca5e",
+  "panel/market=132.parquet": "baabf88bd02deb7955ba68957d4c6c48fe2c27f585ab65e140a6349a93aff089",
+  "panel/market=133.parquet": "caad4dca234b18d2e3c9a66bd3d24683df9bcb177f8121f4bccda49a2b0ec1ff",
+  "panel/market=134.parquet": "7892855434bd1a7c1365b95927c10bfb86a28701da8f1261687e57d2d7ff33a4",
+  "panel/market=135.parquet": "bed115a4f52e55fcfe7d78f0d4e4d3b4767af9cdee5e5ff80f0550e468d90885",
+  "panel/market=136.parquet": "2469bdda20a70e2cdb938499b41f19fe20a7081041861475ecfb70c951110f26",
+  "panel/market=137.parquet": "a87eba76cebd18b9920a6a1ac122659a4c17bc938255a14b06981cc662861591",
+  "panel/market=138.parquet": "d2fd8bb26509efc33fd9ddc1fdb64175648b9f80b9df79c746030fba4707df63",
+  "panel/market=139.parquet": "e2398f387e3a73bfc9d498f1b2071636cf567d8971243e93427bad822b6d0aab",
+  "panel/market=14.parquet": "128ba377a2f9534b3b4be1699ec5ee149ec99e82573d748a5ac84cff54908a9f",
+  "panel/market=140.parquet": "cde9fb52ef9f8ce3884c631dc556d9aa128776b2cef223cf4cb8fea9403e976a",
+  "panel/market=141.parquet": "0fb36ddabd79e02ba8e3cf0bef8c9f1d9f61585d4efff8c035434c231391b303",
+  "panel/market=142.parquet": "9bbb2b1af9849356a62499c9b6fefbde100d99cad8e625368e8dea707353b9bb",
+  "panel/market=143.parquet": "9f71f410601c69007121987f82a715bdcb7dd3b0a7be1d707edd53fcd99b4ad6",
+  "panel/market=144.parquet": "ef409663ffe175d9f5f4755363e6a809a1cdc37372e2e5a39705c1364adfcd59",
+  "panel/market=145.parquet": "1ce89f74e560c83e59a1edf5f1fca90b92c24f5bea6f5489af8ba18785ffea39",
+  "panel/market=146.parquet": "50ce31f317831391d53fbbd0d9b1f5071eaf09f1c9daf86056dc42bea988302b",
+  "panel/market=147.parquet": "1d1eacd257673ce3b37594e30988d9df4180b730efb9ed2fad48917aa78ce750",
+  "panel/market=148.parquet": "d7b02047754ec881b64b66b7fa9774308a5e26403e29c07463456c8f6ecb94d0",
+  "panel/market=149.parquet": "4dcd7c7e8448eacc7cee091bebc957883c27d0bdc7733ce4431de3b444cc9fd9",
+  "panel/market=15.parquet": "341704f76f3573f6b4576f0339ae154355da8638175ade111a1da033f7e20655",
+  "panel/market=150.parquet": "e9900f58aaf5711f1152390ec517a51888b71602e2c9e4222230ee84d9e027ee",
+  "panel/market=151.parquet": "e871e67d129b2a3c650f68ac18ae1b684d24961ec8b35dd80d7bfc7b09e33afd",
+  "panel/market=152.parquet": "37efe76ef7f824781e73d9c8f830451ccded5810734bdd5a49b89dd2d1b2bebc",
+  "panel/market=153.parquet": "d7326c4786aa73041d667870c520c62b9a9cab49a5973ba2a970c0f69beb5e69",
+  "panel/market=154.parquet": "0f06246f9ce1d6357473b15df10c2c877f1ab6f722e7c1816e935d13d112d5fc",
+  "panel/market=155.parquet": "a10e3802bda83cc74d8edb3d8a051ee530e86474377ec13be0c3bd5857c446b4",
+  "panel/market=156.parquet": "91335a2524fee8083c6715c3cca693c45ce53e85bd54fbcbe50e8fb9b90648ef",
+  "panel/market=157.parquet": "53a943f1c5fb5b3732b76bb660d0e8248aed63f99d7b040ee58dc13719954326",
+  "panel/market=158.parquet": "b9a52e92bd8295fccda0fa7711369b535cd3c668ed60159595bc4efeeae45405",
+  "panel/market=159.parquet": "eb8ac47b168657aed582ae33415cce0080a128e0283a821cd3de43e67d25fe3b",
+  "panel/market=16.parquet": "80e975a19a303c6424d22100e3516dd2c69da2f153f2affcbf576bccb8fc7490",
+  "panel/market=160.parquet": "b52ebea56a852f0221a7fe9d1c3d40c96fbac261f6524da41c9d70c6e02ad466",
+  "panel/market=161.parquet": "d94908106697a054cd9c0c03ea49d7443105994f7d1789b12a9db8c0197b911c",
+  "panel/market=162.parquet": "03c5feeb6d54326ed0bdd836f98b143b682e0cc6c9bcfe7dec802e1b6a62029c",
+  "panel/market=163.parquet": "d2053093599f322c8f2f8b9e25f3ee4b31b12b3810ce0a103317d992cbc75e37",
+  "panel/market=164.parquet": "9a64cef246865c44d16a0c96abd578987c9b20997041668cba0ed033746ac876",
+  "panel/market=165.parquet": "826f2e705564b7397691c3cca988451216d60a4f709f90503bafb62a774558b1",
+  "panel/market=166.parquet": "921a5816cdea2ee6f7b31e538f82c5de7b7f0c518fc6860c828cd2bb1a3a52e2",
+  "panel/market=167.parquet": "14da60c01fbd137cd59e43f5b17653b1911bbc156ea038125eb901b58f1e1bcb",
+  "panel/market=168.parquet": "9b2517ed99608ab58ece7cf9c6e2b3dd4952fba1455d59f044b64e1edb96505c",
+  "panel/market=169.parquet": "faf8ab97584ad09b0b328d527e6c60354883fe7a824786a289f9e18be0ab179a",
+  "panel/market=17.parquet": "bb8989db13ffbe78a4eec6f2d7adb0430320151de6839f9d6130ff07ea94724b",
+  "panel/market=170.parquet": "f12bb4a77dc3063db79aaf5e4eca2432e37419110e52feaa5ee1a1b0700372f9",
+  "panel/market=171.parquet": "e1b12bdd405ee4b9ab904a4ea627844d19613f1b2c55e32f74081eab6e22c390",
+  "panel/market=172.parquet": "b731a73f4b7f838dc8141a2539c9b224299a5b210164b0b6f46e99302473fc92",
+  "panel/market=173.parquet": "d99eb13125e47fafa1bd8259ebb9bcee0ff26b8f897ffa87264fb08397d2efa8",
+  "panel/market=174.parquet": "12c0b27d2e422c1511a4ad63e70d7fbbbef8e2691840bf7eecede0c5369d1789",
+  "panel/market=175.parquet": "7438c1aa38a083a7359484dfd4880154b8772619374b984bb743e57e96d38636",
+  "panel/market=177.parquet": "963ea55a6ff961aa24a63aa42b12155d2dc6c5a53524b72a8ece03e3a85cd438",
+  "panel/market=178.parquet": "7f3503c6a66a0dffa448fb6566c275cdbb023aaae7295d3a2b3e19affe0860c1",
+  "panel/market=18.parquet": "86abaeb55b697ef52eea3eb66c825451e3e4a5991af3cc8995b5925cc3e6090c",
+  "panel/market=180.parquet": "dcfddbadb75b22fe38da463c55cfe1dce784734b0eaa9a86e8b289058c476365",
+  "panel/market=181.parquet": "bd27f81271f766fd8340a73c0d03533ec3da4e88c5ede67bc8f68744a2e7b437",
+  "panel/market=182.parquet": "1885ff8a24eaf4cc5e613854104f7cb45b1cabde047136213b08f7fa79957d3f",
+  "panel/market=183.parquet": "ff22d6626ccbbf99b4ad39d585329813b00200a03a06d1a0bef9d4b6f6f29038",
+  "panel/market=184.parquet": "026bd686a1489c880c9927ce8ccccaa9946a8d0a0a3118d78c7d63f199f5180b",
+  "panel/market=185.parquet": "2189199bec8a4a980e48329b3a0d247bf40dc1b8ef22c8fcdccef93cde2208ff",
+  "panel/market=186.parquet": "779e2d6c2857a5d7b8336510a9a370266e242411a38ae14e5582a529cd93967b",
+  "panel/market=187.parquet": "0bc63578cb8a30ee3a7e70692df499841b8d07e4a4ec55a6ead2fa37b33934e0",
+  "panel/market=188.parquet": "e977ca7a14c50ba4b8fe408d7a71ece8564ddf746f6fac4d0389862b5948b41c",
+  "panel/market=189.parquet": "5908c750c0b673abc9af83ceada5965e0d12a736ea05355bff394fa0aa1713e1",
+  "panel/market=19.parquet": "869838bfccc73a878b9ab90dd073a50829ef16967baff6966fea1313a4619f54",
+  "panel/market=191.parquet": "ee991706e9ce3ebbaf6a39897013e5eb4eb214966111d269cce0378f71b435fd",
+  "panel/market=192.parquet": "a8b16b884eed9db21f7f8febd1b24e708eac9ecf1736e7cd30c3bb9566ceb541",
+  "panel/market=193.parquet": "1370014351f99054a338f3d7783add68bdbb3e65ce0fc48fae0e87a263511cd6",
+  "panel/market=194.parquet": "46df7dd1bc93422ad900fe4dfdfb89b48727f799a93b35fd5ebd3a529440a4f8",
+  "panel/market=195.parquet": "2cadeb8f2a1d96f59ebd4cff636c26fef3d9cf85d1e4f385e521e5ec7398c087",
+  "panel/market=197.parquet": "eb197bcf3f4ef3d427a0a2b3e0b369a31ce0dd712675ef82258a2ee2f2702c8d",
+  "panel/market=199.parquet": "76d51aaf5411cd82bc67d1c072df552e48c216fdd1034d9f261305db67c26d78",
+  "panel/market=2.parquet": "9e9e36ce621315512d56e72d5f42fff051888684bdeb3c90b6c5495244874acd",
+  "panel/market=20.parquet": "ce6c33b2734b2a7a0b96324272a0e34d13a1775ee4f608971e440ca8b770c171",
+  "panel/market=205.parquet": "3fa81b30a476cc0664a3e1acda959b061e02ece70e8cc9fc7eb20d7a42dac0a4",
+  "panel/market=21.parquet": "3ce8bfcc0af8882497a1f3b5e5b5be01655e0e3805cd58b9ef45a16d2c2c1c8f",
+  "panel/market=211.parquet": "77bcf877a2ca068b2cada177d6cf090cc23a67112111e331a8f05cd1c4564c6f",
+  "panel/market=212.parquet": "7cab707d488a17d7f776dff6034747b711815b6c0c213e906da598c81c5c581f",
+  "panel/market=22.parquet": "e93a53ae7ef7e8945186f14c158576bec9f0e2d27585327c00a04f3410522d12",
+  "panel/market=23.parquet": "b7039471da8b08548fa9a89a28e1b35a94648dbaade4913a456d7ddc77f08d6e",
+  "panel/market=24.parquet": "2a28392dd11630cfb22b8d217c929419a51df16228db371b5ecebe38cd10080d",
+  "panel/market=25.parquet": "666b8f6338ff76883016fdd2da49da8db918228253d15adc7d67f974f199cc4d",
+  "panel/market=26.parquet": "938b52638203402f97396607662fe575ebc72bd8c31ecf26fd48b5141ebda5df",
+  "panel/market=27.parquet": "339e777422e4ba6b1be6357f93aa2d527c8d2771760348c4a6aaf836685995e0",
+  "panel/market=28.parquet": "ab7901268d45c4142577d46f34c4ec3311aaadda9c91dbbdaa801e4b7937b097",
+  "panel/market=29.parquet": "0d350965cd302f2139924c1172d8759badf4c5c95785a4efde8713a99e8eb9a0",
+  "panel/market=3.parquet": "8003e9e933cc96d27800d3174f16a873677bfaf71d10fa74aac6079d007c8baa",
+  "panel/market=30.parquet": "f8682632240eec086f1fe7ff1bceef293dcdd62700be7307f600ae97c26acb68",
+  "panel/market=31.parquet": "abcd175255fa5aaa61fae0ba9a1cc2ff7ab7eb7c1582ec0d4a2e140219bd1f77",
+  "panel/market=32.parquet": "e5fe685a8d82ff0c885c3e269dd9cc69d411c8c446018be0c96fc842ab3cb86b",
+  "panel/market=33.parquet": "928f4e739c7458d26d95d6eb28aa138deb67b04c7276e476008b2ef26914daaf",
+  "panel/market=34.parquet": "7820c3256f351c06f5a82bebb28bf1c2f8f0cd0dc967995ce44dc824253641a5",
+  "panel/market=35.parquet": "21e232330632e3d97f8b2124c4a5cb75699da199637bd999fea0fd39c8531a3b",
+  "panel/market=36.parquet": "1f2fee3459d9f8615b45e0dd9dc4417ca07e4622890e46c40d829b5b65a8413d",
+  "panel/market=37.parquet": "08b573dccd7388a64350f8878a20b68c069b9b77aa832a8c297706794da27079",
+  "panel/market=38.parquet": "d1d1bf8a4194ca1a5f847c6682d21b093f80494f96edce54c6796472b60bd7e2",
+  "panel/market=39.parquet": "b46f610d78782c1ec271710a6cda257673bcf4b562dca7456ba3ef1817feec6a",
+  "panel/market=4.parquet": "0db6d59dfe339f5ebd65563976d3d6e1ff19fb01c7dfee560de8c713d3fb4043",
+  "panel/market=40.parquet": "72e0006f34f25639aa514d9e0fdc5e4298d234410cf5b7529cc2f1d3902316b1",
+  "panel/market=41.parquet": "7a601b59915694bb9e1d5319f9a23b868cd3df7eee9f8cd0a7c73cd7c90e253c",
+  "panel/market=42.parquet": "d4c9b8d23e6daa03d542788ab350a1e3234543870ab2c714be522d9e6f004056",
+  "panel/market=43.parquet": "12c14a2bb1dde7f525281a8e8af3c5e60a553717bb5fa23fe1153cedf19d5ed3",
+  "panel/market=44.parquet": "31601e938e749b7d3ad8a725be5c7235ef94c36e1b85fa9c982d9ded13cd923f",
+  "panel/market=45.parquet": "b03192db42f83873258b215067143eb191d07e78624da5ebcbfc3b85c369108a",
+  "panel/market=46.parquet": "dd9e08afe62c92f016d1ec6c663811f3826727601210b617fcafca8f8767f122",
+  "panel/market=47.parquet": "82dd386d1cb9e88b165890cc64e7c95c8d72cbdb6e344df5c885b008aea3c750",
+  "panel/market=48.parquet": "af7107ec798238e6fc8134cfb8f65dfe4beedff51637d895ade8f3ec4f7e7f81",
+  "panel/market=49.parquet": "cf828d9e78f09d72b255bed878e07b4ceb2376509a2674843c2e70fe8c69f38b",
+  "panel/market=5.parquet": "92963af1c368f18abe312e678d76d37a6b758e9619e08addf2756661afe30759",
+  "panel/market=50.parquet": "2f9cbdff682e49148f9b921706c4eb5b9fff4f7c4628c41b4d4f7bc1d65bf615",
+  "panel/market=51.parquet": "a56e0d833d84de92997940bf3ad5cfac2c2b4599bcc97f62cfe2c582efcb803a",
+  "panel/market=52.parquet": "d14c5f9f0ad012a31e12c0bc6b128e05b992ba3e447c47790b9c03449ff589d7",
+  "panel/market=53.parquet": "3aba598fe4d4b2219e8cf2eea5fc6ba0aca0f53adbfa1f5af6d5976f18cf9684",
+  "panel/market=54.parquet": "55978c857c279b6b881d49e2deafb4f0176b50e6ff4d41aaab72f5ecc16bff33",
+  "panel/market=55.parquet": "73c281adaa8d92ab3565e1db85612a7f9fdc4fa0b805ec4ef9f3dadb2e68b169",
+  "panel/market=56.parquet": "508b33d410edade610ff9d8f387493dd4f27a4c3889f99e9a284415d3d99a3d8",
+  "panel/market=57.parquet": "f00e1178795a90a801fa11617f320a5f9af82a00bc8191773b0b25f301f4d46f",
+  "panel/market=58.parquet": "3f0ad2831bedb5d429be1cdb50a647b8b4fa83583993b94b41fd320d2a018bf0",
+  "panel/market=59.parquet": "c53f777d59444332bb41a3cd710178dd3227a9bed39ffc0d3d5607786720d618",
+  "panel/market=6.parquet": "7c82b8dadb57f41997268a244f73915dfd60909e054ba9ae39eeca3ec44bfd3e",
+  "panel/market=60.parquet": "9578eb6c8d6a7141d0f5448d9a639c4cd7152f9df5194a3b4b145f3bb4ec6268",
+  "panel/market=61.parquet": "5a7987038a67de0fc5a2fb26663144b0103cd9769b3aea64ee620333e0058743",
+  "panel/market=62.parquet": "dabf773d8ee7ab77ebad13855a70806839689160d92c81485583be2481dfcd1f",
+  "panel/market=63.parquet": "e0ef011f8b202ac551c6931c2d1af8fd2ed2be8c9809699371fcf0ad8c28e291",
+  "panel/market=64.parquet": "30ab51e8820c0c92f5924e04ef6400d99337724fccdd6903becd9e7f4879bca4",
+  "panel/market=65.parquet": "7aed2c166bb1d770964472196117d861b7bdf156cad8d8348897fd9c02cb5206",
+  "panel/market=66.parquet": "3fb0da89366ccab05ce374c1dc456e7a1599259a83a4c427363c066d5d54fb3a",
+  "panel/market=67.parquet": "8542e4938e5d1767a65484e984b36803d1505c06ba1e20c83f45ccc6b575486c",
+  "panel/market=68.parquet": "d6c68d0b8a64c3129582a7a566cdf79809a3ff31cda2c5d3c418a86a5dfc0e52",
+  "panel/market=69.parquet": "36ad0cb3e5b9025b303392c68dc0613bd3187d691481208ad591fbab80874657",
+  "panel/market=7.parquet": "3a8aa8be39d26acf910d35d0027376a98be16ccb427be6b6133fb705b1232d4e",
+  "panel/market=70.parquet": "eb52602a14a182fe008ea45efe450cd07add270931667bc6e01d06eae8618d86",
+  "panel/market=71.parquet": "2116a5763515b9a098cc102e7bf0ac6af9c1353cc23e24fdc0bc92d92bef6c24",
+  "panel/market=72.parquet": "844bd384841485ab496ead53c25d21b1f7471c13de36d2bba663cac2b71a23c9",
+  "panel/market=73.parquet": "165b59c28a70e84addba0a0390c9b8065c401a08505b0e696af8cc0d47355eec",
+  "panel/market=74.parquet": "2dfeb77f86062f716448aa62165b817f688bf5f4163d83b81dd27ca32e73ca35",
+  "panel/market=75.parquet": "4a3f90389e0c7d1675cd50da20f72b8514e8bd7b1a2705d6c3eaf94b7ee5bbd7",
+  "panel/market=76.parquet": "9432bbe531c79ba3282d284d8587ef03d09745fe42787a39e34dfc0ddf372dea",
+  "panel/market=77.parquet": "92d62fbc0fec195e2bae598e81f53e853703925ee1a79543c8f89bb66252b3d4",
+  "panel/market=78.parquet": "bf74704883f87daade567af6a0a0971f08e9053c892ef62166e3e9677ea229c1",
+  "panel/market=79.parquet": "a6fef50475215dc793460d553ab9ae9ad4fd0895ce89643fd929bca111db1143",
+  "panel/market=8.parquet": "d8ac873a5b971208b3f419ecbc9375a310ea42377323dd7588de799242406de2",
+  "panel/market=80.parquet": "bf7cc50e57badcdab4953497d6b9f0be650ed5a03813ecad68c11dd10c74f28d",
+  "panel/market=81.parquet": "f49f074548cccc6085c7374c647267fef732e4c06c9ae3adf725ab0b5d44e711",
+  "panel/market=82.parquet": "277b76d70df6dd551cac57deaa71b5daafe7d304b147b8af902b5402068f1c6a",
+  "panel/market=83.parquet": "0048a9eaf3392e117e0ed4d0e121461aee4129043c12919a6ab340d6b45e7b07",
+  "panel/market=84.parquet": "ed9285ea3762526711d8e78b14cc88de4cb1ad020800ecb763a949d2410da8c1",
+  "panel/market=85.parquet": "7ac3fdbac02a9e5203cb08ff770eada4d1dd488b91f89ce1fb9181e4ffbd5a3c",
+  "panel/market=86.parquet": "57d66aeb9c6c4c8f2ecdf56c2e613ffb49a7060bd6050eb30774dd1fba6d7fa2",
+  "panel/market=87.parquet": "f6bbaf80578348cb8095fed8f6b3fbf29b99eb806828a0f8f841153168f2a65c",
+  "panel/market=88.parquet": "30eb05199e362cb9d0b3b6b6cecd94965f94ef9892a297a90455973ac58923c0",
+  "panel/market=89.parquet": "d4f42aeae85c90445ca13438c18f394b28de0544b7acf8f44167c7c55181586e",
+  "panel/market=9.parquet": "f57029261d8a2e7d22e7ffc3eab2ca0267cbc3fb04623fd1a9c4915f9a9749dc",
+  "panel/market=90.parquet": "5107e096c18012b3b2e3835abd15c7bd74418539d81f264234139b7c9d81574d",
+  "panel/market=91.parquet": "c013e2c141e9fc060ac9f5721bcd7634b32e73eb91e3428513d19e627deeebde",
+  "panel/market=92.parquet": "13d1ca291538994d7ea38f690bef2c9ef2ad493e298f701654ae720fad46528e",
+  "panel/market=93.parquet": "cbd59f16ee5902c14f6cf3eff6536782725f66727db9668d25cec5df0f21733c",
+  "panel/market=94.parquet": "6b75ed811ed4a2aa8e77f329e83289ec9ab2bc54721a11e89473ed6d9dbca216",
+  "panel/market=95.parquet": "8552b634f7e8bba43f80d7c41a02b93268f352348ef48b8810138d3df97f3879",
+  "panel/market=96.parquet": "091d145f48bfd2d3f1422a708b7cf95b69cdd45fa68f12a22b2e416d5ea4aa29",
+  "panel/market=97.parquet": "af7085937a4332fdf25639e65b2e9b78b78ae8ab2d2b2d414da1aed50601673d",
+  "panel/market=98.parquet": "439c78870acad8718212ba73f68eae7ea69be92502734816fe03725c9ba93a38",
+  "panel/market=99.parquet": "94c7ac0c53a13f67505651b1331fe7105a89c63ef8cd83bda4d7d610eabf428c",
+  "panel/panel_manifest.json": "077f8aac24d0774f47315f5f93d7863aea18726892d802c09cd3cdad636d79d6"
+ },
+ "fold_manifest_sha256": "f95f46b0d73ccbef2c4a6a48adb125a180dadf321f13ac4b73f27b707f2f9924",
+ "fold_trades_sha256": "5c26b9ac2eaf5d8462c32353c760480fc1b88350c5fb97162faf192d4e7461e4",
+ "full_result": {
+  "bytes": 8076461,
+  "file": "~/lighter-track/horizon-e1/out/horizon_l1_result.json (VPS)",
+  "note": "per-event rows removed here",
+  "sha256": "83e8d414aea6de55d924a35069f8d54eb5886972b9fcbdfd51baef8571b900c0"
+ },
+ "funding_files_sha256": "5df11a483b359d07116e2cea34632d3c7dd018bd420eba57e4a24bd733856c68",
+ "funding_manifest_sha256": "9c82197a15a2775f7035b822571e8fe0eb7e11619724e3b2e6b645b0359cae4b",
+ "hard_last_date": "2026-06-30",
+ "ledger_id": "horizon-l1",
+ "lighter_lock_sha256": "9e2d9176442d05a1596d6f661286be3f2a90d95ed23987c5b72ce9a2b41a8e87",
+ "liq_manifest_sha256": "b77c575a0fe3e7ceeeaad859e981f65249211368dc839065c5c3ec7ca546366e",
+ "lock": {
+  "attested_by_environment": true,
+  "digest": "f43d62d0c716e756ae7fd6dc5b26a9a35ce0243e07e32928d60efa6c83668d39",
+  "git_head": "cbead3c8e22e4df119adf81f4682d2be966976a2"
+ },
+ "lock_digest": "f43d62d0c716e756ae7fd6dc5b26a9a35ce0243e07e32928d60efa6c83668d39",
+ "markets_sha256": "554d7a4d357a9d030734f1925d95857d95ced4604a8a331ade10e5f405fb1faa",
+ "panel_manifest_sha256": "077f8aac24d0774f47315f5f93d7863aea18726892d802c09cd3cdad636d79d6",
+ "prediction": "Registered 2026-11-14 by the lead before any return was computed: at least one of the six trials passes with probability about 0.1. The mean return of the forced-sell long is positive at 60 and 120 minutes with probability about 0.6, and the forced-buy short is the weaker side. The most likely failure is clause (b), a lower bound that cannot clear 1.3 basis points with day clusters this noisy, and not a negative mean.",
+ "report": {
+  "liq_summary": {
+   "days": 530,
+   "days_with_inconsistent": [
+    "2026-04-29",
+    "2026-05-04",
+    "2026-05-06",
+    "2026-05-10",
+    "2026-05-15",
+    "2026-05-16",
+    "2026-05-17",
+    "2026-05-20",
+    "2026-05-22",
+    "2026-05-23",
+    "2026-05-25",
+    "2026-05-26",
+    "2026-05-27",
+    "2026-05-28",
+    "2026-05-29",
+    "2026-06-01",
+    "2026-06-02",
+    "2026-06-03",
+    "2026-06-04",
+    "2026-06-05",
+    "2026-06-06",
+    "2026-06-09",
+    "2026-06-10",
+    "2026-06-14",
+    "2026-06-15",
+    "2026-06-16",
+    "2026-06-18",
+    "2026-06-23",
+    "2026-06-24",
+    "2026-06-25",
+    "2026-06-26",
+    "2026-06-30"
+   ],
+   "inconsistent_share": 0.00016708366905559562,
+   "liquidation_rows": 1179050,
+   "rows_side_inconsistent": 197,
+   "rows_side_unchecked": 4911
+  },
+  "markets": 198,
+  "rows_omitted": 9159,
+  "trials": {
+   "B-120": {
+    "boot_bound": 6.077672452357141e-05,
+    "bound": -8.315460011396655e-06,
+    "claim": {
+     "claim_bound": -2.0215658775795815e-05,
+     "claim_clusters": 337,
+     "claim_holds": false,
+     "claim_mean": 0.0010243747339594906
+    },
+    "claim_bound": -2.0215658775795815e-05,
+    "claim_clusters": 337,
+    "claim_holds": false,
+    "claim_mean": 0.0010243747339594906,
+    "clause_a": true,
+    "clause_b": false,
+    "clause_c": true,
+    "clause_d": true,
+    "counts": {
+     "bursts": 61464,
+     "candidates": 1541,
+     "clusters": 338,
+     "eligible": 1157,
+     "events": 1170,
+     "exit_fallbacks": 0,
+     "funding_gap": 2,
+     "ineligible_by_reason": {
+      "activity": 2,
+      "no_spread_proxy": 9
+     },
+     "markets": 48,
+     "no_controls": 6,
+     "no_entry_fill": 4,
+     "ok": 1153,
+     "span_end": 0,
+     "ties": 273,
+     "traded_events": 1168
+    },
+    "descriptive": {
+     "account_run": {
+      "mean_return": 0.0008856899555289037,
+      "skipped": 0,
+      "taken": 1153,
+      "total_usd_profit": 10.21200518724826
+     },
+     "burst_duration_median": 5.0,
+     "burst_duration_p90": 15.0,
+     "by_class": {
+      "crypto": {
+       "mean_return": 0.0008577482245197839,
+       "n": 1123
+      },
+      "tradfi": {
+       "mean_return": 0.0019346634580041722,
+       "n": 27
+      },
+      "unclassified": {
+       "mean_return": 0.0019044497409986562,
+       "n": 3
+      }
+     },
+     "by_market": [
+      {
+       "market_id": 0,
+       "mean_return": -0.00019294379855573884,
+       "n": 451,
+       "symbol": "ETH"
+      },
+      {
+       "market_id": 1,
+       "mean_return": -0.00021354422692759038,
+       "n": 325,
+       "symbol": "BTC"
+      },
+      {
+       "market_id": 24,
+       "mean_return": 0.00035305105134045023,
+       "n": 143,
+       "symbol": "HYPE"
+      },
+      {
+       "market_id": 2,
+       "mean_return": 0.0017367059518742598,
+       "n": 68,
+       "symbol": "SOL"
+      },
+      {
+       "market_id": 25,
+       "mean_return": -0.0014280299783174359,
+       "n": 24,
+       "symbol": "BNB"
+      },
+      {
+       "market_id": 71,
+       "mean_return": 0.004994547478324526,
+       "n": 16,
+       "symbol": "XPL"
+      },
+      {
+       "market_id": 7,
+       "mean_return": -0.0009532475937185668,
+       "n": 12,
+       "symbol": "XRP"
+      },
+      {
+       "market_id": 29,
+       "mean_return": -0.010878635578602719,
+       "n": 9,
+       "symbol": "ENA"
+      },
+      {
+       "market_id": 90,
+       "mean_return": 0.0010030846200227205,
+       "n": 9,
+       "symbol": "ZEC"
+      },
+      {
+       "market_id": 12,
+       "mean_return": -0.013517216737577576,
+       "n": 6,
+       "symbol": "GRAM"
+      }
+     ],
+     "by_month": {
+      "2025-02": {
+       "mean_return": 0.013965427132381187,
+       "n": 2
+      },
+      "2025-03": {
+       "mean_return": 0.000720013624349429,
+       "n": 10
+      },
+      "2025-04": {
+       "mean_return": 0.0010557394722381945,
+       "n": 39
+      },
+      "2025-05": {
+       "mean_return": -0.0023820827849459375,
+       "n": 68
+      },
+      "2025-06": {
+       "mean_return": 0.0016532112583879334,
+       "n": 60
+      },
+      "2025-07": {
+       "mean_return": -0.0013851436359206119,
+       "n": 93
+      },
+      "2025-08": {
+       "mean_return": 0.001008290926577348,
+       "n": 98
+      },
+      "2025-09": {
+       "mean_return": 0.0012964842925739046,
+       "n": 124
+      },
+      "2025-10": {
+       "mean_return": 0.0006338450925259231,
+       "n": 215
+      },
+      "2025-11": {
+       "mean_return": 5.726143455335343e-05,
+       "n": 99
+      },
+      "2025-12": {
+       "mean_return": 0.0022410288642610073,
+       "n": 73
+      },
+      "2026-01": {
+       "mean_return": -0.0004128965292634682,
+       "n": 68
+      },
+      "2026-02": {
+       "mean_return": 0.015308651860902753,
+       "n": 49
+      },
+      "2026-03": {
+       "mean_return": -0.0003689039445221614,
+       "n": 36
+      },
+      "2026-04": {
+       "mean_return": -0.002479243145749626,
+       "n": 47
+      },
+      "2026-05": {
+       "mean_return": -0.0008316442879294787,
+       "n": 35
+      },
+      "2026-06": {
+       "mean_return": 0.00022300801244686457,
+       "n": 37
+      }
+     },
+     "cluster_describe": {
+      "mean": 0.001432043628095163,
+      "median": 0.0006720892607313806,
+      "n": 338,
+      "sd": 0.011006142319124378,
+      "share_positive": 0.5473372781065089,
+      "t": 2.3921007930417666
+     },
+     "cost_minus_2bps_mean": 0.0006856899555289038,
+     "cost_minus_4bps_mean": 0.00048568995552890375,
+     "counts": {
+      "bursts": 61464,
+      "candidates": 1541,
+      "clusters": 338,
+      "eligible": 1157,
+      "events": 1170,
+      "exit_fallbacks": 0,
+      "funding_gap": 2,
+      "ineligible_by_reason": {
+       "activity": 2,
+       "no_spread_proxy": 9
+      },
+      "markets": 48,
+      "no_controls": 6,
+      "no_entry_fill": 4,
+      "ok": 1153,
+      "span_end": 0,
+      "ties": 273,
+      "traded_events": 1168
+     },
+     "entry_offset_profile": {
+      "10": 0.0006963441130426985,
+      "15": 0.00044418018882356217,
+      "5": 0.0014320436280951627,
+      "6": 0.0007792467588340894
+     },
+     "event_describe": {
+      "mean": 0.0008856899555289038,
+      "median": 0.0005258927145556962,
+      "n": 1153,
+      "sd": 0.025390705446017736,
+      "share_positive": 0.5229835212489159,
+      "t": 1.1844632915368503
+     },
+     "funding_sum": 0.073239,
+     "latency_entry_mean_ms": 1710.2281006071119,
+     "latency_exit_mean_ms": 1953.4622723330442,
+     "share_adverse_gt_2pct": 0.1344319167389419,
+     "share_adverse_gt_30pct": 0.0008673026886383347,
+     "volume_weighted_mean_return": 0.0004925139803480484,
+     "without_2025_10_10": {
+      "cluster_mean": 0.001373357540156797,
+      "event_mean": 0.0006899288185886674,
+      "n_clusters": 337,
+      "n_events": 1142
+     },
+     "worst_adverse": 0.39423535016674616
+    },
+    "excluded_share": 0.003457216940363008,
+    "h": 120,
+    "judgement": {
+     "boot_bound": 6.077672452357141e-05,
+     "bound": -8.315460011396655e-06,
+     "clause_a": true,
+     "clause_b": false,
+     "clause_c": true,
+     "clause_d": true,
+     "excluded_share": 0.003457216940363008,
+     "mean": 0.001432043628095163,
+     "n_clusters": 338,
+     "passed": false,
+     "t_bound": -8.315460011396655e-06
+    },
+    "mean": 0.001432043628095163,
+    "n_clusters": 338,
+    "passed": false,
+    "side": "B",
+    "t_bound": -8.315460011396655e-06,
+    "trial_id": "B-120"
+   },
+   "B-30": {
+    "boot_bound": -0.0006348089557098881,
+    "bound": -0.0006793038181988739,
+    "claim": {
+     "claim_bound": -0.0006757934207371883,
+     "claim_clusters": 337,
+     "claim_holds": false,
+     "claim_mean": -4.6690478214740236e-05
+    },
+    "claim_bound": -0.0006757934207371883,
+    "claim_clusters": 337,
+    "claim_holds": false,
+    "claim_mean": -4.6690478214740236e-05,
+    "clause_a": false,
+    "clause_b": false,
+    "clause_c": true,
+    "clause_d": true,
+    "counts": {
+     "bursts": 61464,
+     "candidates": 1541,
+     "clusters": 338,
+     "eligible": 1157,
+     "events": 1170,
+     "exit_fallbacks": 0,
+     "funding_gap": 0,
+     "ineligible_by_reason": {
+      "activity": 2,
+      "no_spread_proxy": 9
+     },
+     "markets": 48,
+     "no_controls": 6,
+     "no_entry_fill": 4,
+     "ok": 1153,
+     "span_end": 0,
+     "ties": 300,
+     "traded_events": 1168
+    },
+    "descriptive": {
+     "account_run": {
+      "mean_return": 7.250248429119344e-05,
+      "skipped": 0,
+      "taken": 1153,
+      "total_usd_profit": 0.8359536438774604
+     },
+     "burst_duration_median": 5.0,
+     "burst_duration_p90": 15.0,
+     "by_class": {
+      "crypto": {
+       "mean_return": 1.906175018637648e-05,
+       "n": 1123
+      },
+      "tradfi": {
+       "mean_return": 0.0008238437652041473,
+       "n": 27
+      },
+      "unclassified": {
+       "mean_return": 0.013315079089311135,
+       "n": 3
+      }
+     },
+     "by_market": [
+      {
+       "market_id": 0,
+       "mean_return": -0.0004469679634756906,
+       "n": 451,
+       "symbol": "ETH"
+      },
+      {
+       "market_id": 1,
+       "mean_return": -0.0001357605352022749,
+       "n": 325,
+       "symbol": "BTC"
+      },
+      {
+       "market_id": 24,
+       "mean_return": -0.001205499042487763,
+       "n": 143,
+       "symbol": "HYPE"
+      },
+      {
+       "market_id": 2,
+       "mean_return": -0.0009761083407944193,
+       "n": 68,
+       "symbol": "SOL"
+      },
+      {
+       "market_id": 25,
+       "mean_return": 0.0009344934704061782,
+       "n": 24,
+       "symbol": "BNB"
+      },
+      {
+       "market_id": 71,
+       "mean_return": 0.0043014150023513165,
+       "n": 16,
+       "symbol": "XPL"
+      },
+      {
+       "market_id": 7,
+       "mean_return": -0.0015263096428589906,
+       "n": 12,
+       "symbol": "XRP"
+      },
+      {
+       "market_id": 29,
+       "mean_return": -0.00429830730916196,
+       "n": 9,
+       "symbol": "ENA"
+      },
+      {
+       "market_id": 90,
+       "mean_return": 0.005284419362060398,
+       "n": 9,
+       "symbol": "ZEC"
+      },
+      {
+       "market_id": 12,
+       "mean_return": -0.005607505805439381,
+       "n": 6,
+       "symbol": "GRAM"
+      }
+     ],
+     "by_month": {
+      "2025-02": {
+       "mean_return": 0.0035854796584980034,
+       "n": 2
+      },
+      "2025-03": {
+       "mean_return": -0.0005312449268480481,
+       "n": 10
+      },
+      "2025-04": {
+       "mean_return": -0.0009707085963482521,
+       "n": 39
+      },
+      "2025-05": {
+       "mean_return": -0.0003700943421383357,
+       "n": 68
+      },
+      "2025-06": {
+       "mean_return": -0.0007650743514300101,
+       "n": 60
+      },
+      "2025-07": {
+       "mean_return": -0.0013692946833556683,
+       "n": 93
+      },
+      "2025-08": {
+       "mean_return": 9.823530928041585e-05,
+       "n": 98
+      },
+      "2025-09": {
+       "mean_return": 0.001111079294214276,
+       "n": 124
+      },
+      "2025-10": {
+       "mean_return": 0.0005938806726940406,
+       "n": 215
+      },
+      "2025-11": {
+       "mean_return": -0.0024676637207318615,
+       "n": 99
+      },
+      "2025-12": {
+       "mean_return": 0.0002771798050274007,
+       "n": 73
+      },
+      "2026-01": {
+       "mean_return": 3.0300116744910085e-06,
+       "n": 68
+      },
+      "2026-02": {
+       "mean_return": 0.0088424432972726,
+       "n": 49
+      },
+      "2026-03": {
+       "mean_return": -0.0009131437162444912,
+       "n": 36
+      },
+      "2026-04": {
+       "mean_return": -0.0011115511419168458,
+       "n": 47
+      },
+      "2026-05": {
+       "mean_return": -0.0015392914128935019,
+       "n": 35
+      },
+      "2026-06": {
+       "mean_return": -0.000743388345669604,
+       "n": 37
+      }
+     },
+     "cluster_describe": {
+      "mean": 0.00023329619244371534,
+      "median": 3.183299648925147e-05,
+      "n": 338,
+      "sd": 0.006973403841100821,
+      "share_positive": 0.5088757396449705,
+      "t": 0.6150652407323793
+     },
+     "cost_minus_2bps_mean": -0.00012749751570880643,
+     "cost_minus_4bps_mean": -0.00032749751570880644,
+     "counts": {
+      "bursts": 61464,
+      "candidates": 1541,
+      "clusters": 338,
+      "eligible": 1157,
+      "events": 1170,
+      "exit_fallbacks": 0,
+      "funding_gap": 0,
+      "ineligible_by_reason": {
+       "activity": 2,
+       "no_spread_proxy": 9
+      },
+      "markets": 48,
+      "no_controls": 6,
+      "no_entry_fill": 4,
+      "ok": 1153,
+      "span_end": 0,
+      "ties": 300,
+      "traded_events": 1168
+     },
+     "entry_offset_profile": {
+      "10": 2.1569669310243745e-08,
+      "15": -0.0002157863921834942,
+      "5": 0.00023329619244371528,
+      "6": 8.733335643798561e-05
+     },
+     "event_describe": {
+      "mean": 7.250248429119358e-05,
+      "median": 0.0002198282709436894,
+      "n": 1153,
+      "sd": 0.016929556238341723,
+      "share_positive": 0.5195143104943626,
+      "t": 0.14541927232406557
+     },
+     "funding_sum": 0.012152999999999999,
+     "latency_entry_mean_ms": 1710.2281006071119,
+     "latency_exit_mean_ms": 1923.7580225498698,
+     "share_adverse_gt_2pct": 0.047701647875108416,
+     "share_adverse_gt_30pct": 0.0008673026886383347,
+     "volume_weighted_mean_return": -0.0007743257018196788,
+     "without_2025_10_10": {
+      "cluster_mean": 0.00017437619830789673,
+      "event_mean": -0.000120304126086352,
+      "n_clusters": 337,
+      "n_events": 1142
+     },
+     "worst_adverse": 0.39423535016674616
+    },
+    "excluded_share": 0.003457216940363008,
+    "h": 30,
+    "judgement": {
+     "boot_bound": -0.0006348089557098881,
+     "bound": -0.0006793038181988739,
+     "clause_a": false,
+     "clause_b": false,
+     "clause_c": true,
+     "clause_d": true,
+     "excluded_share": 0.003457216940363008,
+     "mean": 0.00023329619244371534,
+     "n_clusters": 338,
+     "passed": false,
+     "t_bound": -0.0006793038181988739
+    },
+    "mean": 0.00023329619244371534,
+    "n_clusters": 338,
+    "passed": false,
+    "side": "B",
+    "t_bound": -0.0006793038181988739,
+    "trial_id": "B-30"
+   },
+   "B-60": {
+    "boot_bound": -0.00046519232143328083,
+    "bound": -0.0004687371550461605,
+    "claim": {
+     "claim_bound": -0.0005840819600988585,
+     "claim_clusters": 337,
+     "claim_holds": false,
+     "claim_mean": 0.00023759824020832933
+    },
+    "claim_bound": -0.0005840819600988585,
+    "claim_clusters": 337,
+    "claim_holds": false,
+    "claim_mean": 0.00023759824020832933,
+    "clause_a": true,
+    "clause_b": false,
+    "clause_c": true,
+    "clause_d": true,
+    "counts": {
+     "bursts": 61464,
+     "candidates": 1541,
+     "clusters": 338,
+     "eligible": 1157,
+     "events": 1170,
+     "exit_fallbacks": 0,
+     "funding_gap": 2,
+     "ineligible_by_reason": {
+      "activity": 2,
+      "no_spread_proxy": 9
+     },
+     "markets": 48,
+     "no_controls": 6,
+     "no_entry_fill": 4,
+     "ok": 1153,
+     "span_end": 0,
+     "ties": 278,
+     "traded_events": 1168
+    },
+    "descriptive": {
+     "account_run": {
+      "mean_return": 0.00040120916431645674,
+      "skipped": 0,
+      "taken": 1153,
+      "total_usd_profit": 4.625941664568746
+     },
+     "burst_duration_median": 5.0,
+     "burst_duration_p90": 15.0,
+     "by_class": {
+      "crypto": {
+       "mean_return": 0.00029436971876476033,
+       "n": 1123
+      },
+      "tradfi": {
+       "mean_return": 0.004211768241115409,
+       "n": 27
+      },
+      "unclassified": {
+       "mean_return": 0.006099743257977599,
+       "n": 3
+      }
+     },
+     "by_market": [
+      {
+       "market_id": 0,
+       "mean_return": -0.0003965236152412606,
+       "n": 451,
+       "symbol": "ETH"
+      },
+      {
+       "market_id": 1,
+       "mean_return": -2.0061986647485955e-05,
+       "n": 325,
+       "symbol": "BTC"
+      },
+      {
+       "market_id": 24,
+       "mean_return": -0.0005231687874870849,
+       "n": 143,
+       "symbol": "HYPE"
+      },
+      {
+       "market_id": 2,
+       "mean_return": -0.0009873578368054929,
+       "n": 68,
+       "symbol": "SOL"
+      },
+      {
+       "market_id": 25,
+       "mean_return": 0.0005017835010037252,
+       "n": 24,
+       "symbol": "BNB"
+      },
+      {
+       "market_id": 71,
+       "mean_return": 0.008916179620208266,
+       "n": 16,
+       "symbol": "XPL"
+      },
+      {
+       "market_id": 7,
+       "mean_return": -0.0003266220085548976,
+       "n": 12,
+       "symbol": "XRP"
+      },
+      {
+       "market_id": 29,
+       "mean_return": -0.01746231866790374,
+       "n": 9,
+       "symbol": "ENA"
+      },
+      {
+       "market_id": 90,
+       "mean_return": 0.006413429631198614,
+       "n": 9,
+       "symbol": "ZEC"
+      },
+      {
+       "market_id": 12,
+       "mean_return": -0.021715194498953386,
+       "n": 6,
+       "symbol": "GRAM"
+      }
+     ],
+     "by_month": {
+      "2025-02": {
+       "mean_return": 0.0012788871287130591,
+       "n": 2
+      },
+      "2025-03": {
+       "mean_return": -0.0020138295994333415,
+       "n": 10
+      },
+      "2025-04": {
+       "mean_return": -0.00034931293815774084,
+       "n": 39
+      },
+      "2025-05": {
+       "mean_return": -0.0021742926187219894,
+       "n": 68
+      },
+      "2025-06": {
+       "mean_return": 0.000932813092532465,
+       "n": 60
+      },
+      "2025-07": {
+       "mean_return": -0.0025639368082163204,
+       "n": 93
+      },
+      "2025-08": {
+       "mean_return": -0.00014510861980045073,
+       "n": 98
+      },
+      "2025-09": {
+       "mean_return": 0.0012965881873107307,
+       "n": 124
+      },
+      "2025-10": {
+       "mean_return": 0.0007262885432758649,
+       "n": 215
+      },
+      "2025-11": {
+       "mean_return": -0.0004652915029163002,
+       "n": 99
+      },
+      "2025-12": {
+       "mean_return": 0.0018085439363527609,
+       "n": 73
+      },
+      "2026-01": {
+       "mean_return": -0.00024764225797066264,
+       "n": 68
+      },
+      "2026-02": {
+       "mean_return": 0.011489499439149965,
+       "n": 49
+      },
+      "2026-03": {
+       "mean_return": 0.0016237870748847534,
+       "n": 36
+      },
+      "2026-04": {
+       "mean_return": -0.0021246931276160466,
+       "n": 47
+      },
+      "2026-05": {
+       "mean_return": -0.0012611411107749536,
+       "n": 35
+      },
+      "2026-06": {
+       "mean_return": -0.0006795314914960274,
+       "n": 37
+      }
+     },
+     "cluster_describe": {
+      "mean": 0.0007019476674556999,
+      "median": 0.0005147483878920452,
+      "n": 338,
+      "sd": 0.008945494129684074,
+      "share_positive": 0.5384615384615384,
+      "t": 1.4426425931321805
+     },
+     "cost_minus_2bps_mean": 0.00020120916431645678,
+     "cost_minus_4bps_mean": 1.209164316456771e-06,
+     "counts": {
+      "bursts": 61464,
+      "candidates": 1541,
+      "clusters": 338,
+      "eligible": 1157,
+      "events": 1170,
+      "exit_fallbacks": 0,
+      "funding_gap": 2,
+      "ineligible_by_reason": {
+       "activity": 2,
+       "no_spread_proxy": 9
+      },
+      "markets": 48,
+      "no_controls": 6,
+      "no_entry_fill": 4,
+      "ok": 1153,
+      "span_end": 0,
+      "ties": 278,
+      "traded_events": 1168
+     },
+     "entry_offset_profile": {
+      "10": 0.0004967379065030363,
+      "15": 0.00022828473552429608,
+      "5": 0.0007019476674557,
+      "6": 0.0005889089242462672
+     },
+     "event_describe": {
+      "mean": 0.0004012091643164568,
+      "median": 0.0006768400840919555,
+      "n": 1153,
+      "sd": 0.021182370878278782,
+      "share_positive": 0.5316565481352992,
+      "t": 0.6431480102951892
+     },
+     "funding_sum": 0.046570999999999994,
+     "latency_entry_mean_ms": 1710.2281006071119,
+     "latency_exit_mean_ms": 2561.7181266261923,
+     "share_adverse_gt_2pct": 0.08412836079791847,
+     "share_adverse_gt_30pct": 0.0008673026886383347,
+     "volume_weighted_mean_return": -0.0009428565411166948,
+     "without_2025_10_10": {
+      "cluster_mean": 0.0006599896832104234,
+      "event_mean": 0.0002621142684042224,
+      "n_clusters": 337,
+      "n_events": 1142
+     },
+     "worst_adverse": 0.39423535016674616
+    },
+    "excluded_share": 0.003457216940363008,
+    "h": 60,
+    "judgement": {
+     "boot_bound": -0.00046519232143328083,
+     "bound": -0.0004687371550461605,
+     "clause_a": true,
+     "clause_b": false,
+     "clause_c": true,
+     "clause_d": true,
+     "excluded_share": 0.003457216940363008,
+     "mean": 0.0007019476674556999,
+     "n_clusters": 338,
+     "passed": false,
+     "t_bound": -0.0004687371550461605
+    },
+    "mean": 0.0007019476674556999,
+    "n_clusters": 338,
+    "passed": false,
+    "side": "B",
+    "t_bound": -0.0004687371550461605,
+    "trial_id": "B-60"
+   },
+   "S-120": {
+    "boot_bound": 0.00026026202539715984,
+    "bound": 0.00026026202539715984,
+    "claim": {
+     "claim_bound": -1.681981936047208e-05,
+     "claim_clusters": 398,
+     "claim_holds": false,
+     "claim_mean": 0.0011614441986365321
+    },
+    "claim_bound": -1.681981936047208e-05,
+    "claim_clusters": 398,
+    "claim_holds": false,
+    "claim_mean": 0.0011614441986365321,
+    "clause_a": true,
+    "clause_b": true,
+    "clause_c": true,
+    "clause_d": true,
+    "counts": {
+     "bursts": 72169,
+     "candidates": 2864,
+     "clusters": 398,
+     "eligible": 1896,
+     "events": 1915,
+     "exit_fallbacks": 3,
+     "funding_gap": 2,
+     "ineligible_by_reason": {
+      "activity": 5,
+      "no_spread_proxy": 8
+     },
+     "markets": 69,
+     "no_controls": 8,
+     "no_entry_fill": 1,
+     "ok": 1895,
+     "span_end": 0,
+     "ties": 380,
+     "traded_events": 1909
+    },
+    "descriptive": {
+     "account_run": {
+      "mean_return": 0.0034375268867763197,
+      "skipped": 26,
+      "taken": 1869,
+      "total_usd_profit": 64.24737751384941
+     },
+     "burst_duration_median": 7.0,
+     "burst_duration_p90": 17.0,
+     "by_class": {
+      "crypto": {
+       "mean_return": 0.003717042201574617,
+       "n": 1841
+      },
+      "tradfi": {
+       "mean_return": -0.0012423884214606137,
+       "n": 47
+      },
+      "unclassified": {
+       "mean_return": -0.007468079040254828,
+       "n": 7
+      }
+     },
+     "by_market": [
+      {
+       "market_id": 0,
+       "mean_return": 0.0005237872977337429,
+       "n": 607,
+       "symbol": "ETH"
+      },
+      {
+       "market_id": 1,
+       "mean_return": 0.00027988291767901656,
+       "n": 456,
+       "symbol": "BTC"
+      },
+      {
+       "market_id": 24,
+       "mean_return": 0.0016445543789359437,
+       "n": 270,
+       "symbol": "HYPE"
+      },
+      {
+       "market_id": 2,
+       "mean_return": 0.0013331417538343104,
+       "n": 161,
+       "symbol": "SOL"
+      },
+      {
+       "market_id": 71,
+       "mean_return": 0.00898910135421504,
+       "n": 41,
+       "symbol": "XPL"
+      },
+      {
+       "market_id": 45,
+       "mean_return": -0.0015829355400653112,
+       "n": 32,
+       "symbol": "PUMP"
+      },
+      {
+       "market_id": 83,
+       "mean_return": 0.023759637456785106,
+       "n": 26,
+       "symbol": "ASTER"
+      },
+      {
+       "market_id": 29,
+       "mean_return": 0.01477816920071079,
+       "n": 25,
+       "symbol": "ENA"
+      },
+      {
+       "market_id": 25,
+       "mean_return": 0.00450890493662559,
+       "n": 23,
+       "symbol": "BNB"
+      },
+      {
+       "market_id": 21,
+       "mean_return": 0.018722095551661367,
+       "n": 22,
+       "symbol": "FARTCOIN"
+      }
+     ],
+     "by_month": {
+      "2025-02": {
+       "mean_return": -0.016455495019367397,
+       "n": 4
+      },
+      "2025-03": {
+       "mean_return": 0.0025217612763936306,
+       "n": 23
+      },
+      "2025-04": {
+       "mean_return": 0.0014643611753544456,
+       "n": 42
+      },
+      "2025-05": {
+       "mean_return": 0.003995165351056829,
+       "n": 74
+      },
+      "2025-06": {
+       "mean_return": 0.00016358342075476807,
+       "n": 102
+      },
+      "2025-07": {
+       "mean_return": 0.001390762665390941,
+       "n": 129
+      },
+      "2025-08": {
+       "mean_return": 0.0027411924916568367,
+       "n": 165
+      },
+      "2025-09": {
+       "mean_return": 0.003823465490694742,
+       "n": 209
+      },
+      "2025-10": {
+       "mean_return": 0.01433199091002882,
+       "n": 313
+      },
+      "2025-11": {
+       "mean_return": 0.00039530138071717526,
+       "n": 216
+      },
+      "2025-12": {
+       "mean_return": -0.0007634673212045549,
+       "n": 132
+      },
+      "2026-01": {
+       "mean_return": -0.0014366814261630434,
+       "n": 152
+      },
+      "2026-02": {
+       "mean_return": 0.0019077451557735472,
+       "n": 97
+      },
+      "2026-03": {
+       "mean_return": 0.0026859270601039525,
+       "n": 44
+      },
+      "2026-04": {
+       "mean_return": -0.0005255391240392208,
+       "n": 44
+      },
+      "2026-05": {
+       "mean_return": -0.0009586966204849009,
+       "n": 56
+      },
+      "2026-06": {
+       "mean_return": 0.004914200854912788,
+       "n": 93
+      }
+     },
+     "cluster_describe": {
+      "mean": 0.001959131637492842,
+      "median": 0.001537186095662517,
+      "n": 398,
+      "sd": 0.013296654080543771,
+      "share_positive": 0.6030150753768844,
+      "t": 2.93942770703276
+     },
+     "cost_minus_2bps_mean": 0.0033527207831179095,
+     "cost_minus_4bps_mean": 0.0031527207831179094,
+     "counts": {
+      "bursts": 72169,
+      "candidates": 2864,
+      "clusters": 398,
+      "eligible": 1896,
+      "events": 1915,
+      "exit_fallbacks": 3,
+      "funding_gap": 2,
+      "ineligible_by_reason": {
+       "activity": 5,
+       "no_spread_proxy": 8
+      },
+      "markets": 69,
+      "no_controls": 8,
+      "no_entry_fill": 1,
+      "ok": 1895,
+      "span_end": 0,
+      "ties": 380,
+      "traded_events": 1909
+     },
+     "entry_offset_profile": {
+      "10": 0.0017220089017177921,
+      "15": 0.0019821870815898415,
+      "5": 0.001959131637492842,
+      "6": 0.001828496215212337
+     },
+     "event_describe": {
+      "mean": 0.0035527207831179096,
+      "median": 0.0009393911368014391,
+      "n": 1895,
+      "sd": 0.058501963283155774,
+      "share_positive": 0.5345646437994723,
+      "t": 2.6435969540259876
+     },
+     "funding_sum": -0.038759,
+     "latency_entry_mean_ms": 1752.2791556728232,
+     "latency_exit_mean_ms": -1113.0828496042216,
+     "share_adverse_gt_2pct": 0.18153034300791557,
+     "share_adverse_gt_30pct": 0.0021108179419525065,
+     "volume_weighted_mean_return": 0.004075316061505659,
+     "without_2025_10_10": {
+      "cluster_mean": 0.0016911987764350472,
+      "event_mean": 0.001293405274884604,
+      "n_clusters": 397,
+      "n_events": 1855
+     },
+     "worst_adverse": 0.6287295543433716
+    },
+    "excluded_share": 0.0005274261603375527,
+    "h": 120,
+    "judgement": {
+     "boot_bound": 0.00026026202539715984,
+     "bound": 0.00026026202539715984,
+     "clause_a": true,
+     "clause_b": true,
+     "clause_c": true,
+     "clause_d": true,
+     "excluded_share": 0.0005274261603375527,
+     "mean": 0.001959131637492842,
+     "n_clusters": 398,
+     "passed": true,
+     "t_bound": 0.0003567508984218019
+    },
+    "mean": 0.001959131637492842,
+    "n_clusters": 398,
+    "passed": true,
+    "side": "S",
+    "t_bound": 0.0003567508984218019,
+    "trial_id": "S-120"
+   },
+   "S-30": {
+    "boot_bound": -0.0007830462686703078,
+    "bound": -0.0007830462686703078,
+    "claim": {
+     "claim_bound": -0.0005769215426782943,
+     "claim_clusters": 398,
+     "claim_holds": false,
+     "claim_mean": 0.00013575997237350422
+    },
+    "claim_bound": -0.0005769215426782943,
+    "claim_clusters": 398,
+    "claim_holds": false,
+    "claim_mean": 0.00013575997237350422,
+    "clause_a": false,
+    "clause_b": false,
+    "clause_c": true,
+    "clause_d": true,
+    "counts": {
+     "bursts": 72169,
+     "candidates": 2864,
+     "clusters": 398,
+     "eligible": 1896,
+     "events": 1915,
+     "exit_fallbacks": 1,
+     "funding_gap": 0,
+     "ineligible_by_reason": {
+      "activity": 5,
+      "no_spread_proxy": 8
+     },
+     "markets": 69,
+     "no_controls": 8,
+     "no_entry_fill": 1,
+     "ok": 1895,
+     "span_end": 0,
+     "ties": 390,
+     "traded_events": 1909
+    },
+    "descriptive": {
+     "account_run": {
+      "mean_return": 0.0020037435329049585,
+      "skipped": 13,
+      "taken": 1882,
+      "total_usd_profit": 37.71045328927132
+     },
+     "burst_duration_median": 7.0,
+     "burst_duration_p90": 17.0,
+     "by_class": {
+      "crypto": {
+       "mean_return": 0.0020602626558510213,
+       "n": 1841
+      },
+      "tradfi": {
+       "mean_return": -0.0012958522185552766,
+       "n": 47
+      },
+      "unclassified": {
+       "mean_return": -0.0039933038487476,
+       "n": 7
+      }
+     },
+     "by_market": [
+      {
+       "market_id": 0,
+       "mean_return": 0.00031471482499899095,
+       "n": 607,
+       "symbol": "ETH"
+      },
+      {
+       "market_id": 1,
+       "mean_return": 0.00020147890723192836,
+       "n": 456,
+       "symbol": "BTC"
+      },
+      {
+       "market_id": 24,
+       "mean_return": 0.0008358850959194923,
+       "n": 270,
+       "symbol": "HYPE"
+      },
+      {
+       "market_id": 2,
+       "mean_return": -0.00014699368716110842,
+       "n": 161,
+       "symbol": "SOL"
+      },
+      {
+       "market_id": 71,
+       "mean_return": 0.004488120982177899,
+       "n": 41,
+       "symbol": "XPL"
+      },
+      {
+       "market_id": 45,
+       "mean_return": -0.004265710097561474,
+       "n": 32,
+       "symbol": "PUMP"
+      },
+      {
+       "market_id": 83,
+       "mean_return": 0.008549285625163779,
+       "n": 26,
+       "symbol": "ASTER"
+      },
+      {
+       "market_id": 29,
+       "mean_return": 0.0012539933488525815,
+       "n": 25,
+       "symbol": "ENA"
+      },
+      {
+       "market_id": 25,
+       "mean_return": -0.002961980454335057,
+       "n": 23,
+       "symbol": "BNB"
+      },
+      {
+       "market_id": 21,
+       "mean_return": 0.013312865011714163,
+       "n": 22,
+       "symbol": "FARTCOIN"
+      }
+     ],
+     "by_month": {
+      "2025-02": {
+       "mean_return": -0.012893151387241055,
+       "n": 4
+      },
+      "2025-03": {
+       "mean_return": -0.002401222046069591,
+       "n": 23
+      },
+      "2025-04": {
+       "mean_return": 4.140977953218519e-06,
+       "n": 42
+      },
+      "2025-05": {
+       "mean_return": 0.0005406513974542501,
+       "n": 74
+      },
+      "2025-06": {
+       "mean_return": -0.0001649440531191809,
+       "n": 102
+      },
+      "2025-07": {
+       "mean_return": 0.0007541652206630361,
+       "n": 129
+      },
+      "2025-08": {
+       "mean_return": -0.0010801709608055333,
+       "n": 165
+      },
+      "2025-09": {
+       "mean_return": 0.0007075103865887342,
+       "n": 209
+      },
+      "2025-10": {
+       "mean_return": 0.010519145607804327,
+       "n": 313
+      },
+      "2025-11": {
+       "mean_return": 0.0006931635968647438,
+       "n": 216
+      },
+      "2025-12": {
+       "mean_return": 0.00039704377845427264,
+       "n": 132
+      },
+      "2026-01": {
+       "mean_return": -0.0017596020519818046,
+       "n": 152
+      },
+      "2026-02": {
+       "mean_return": 0.0021209394079980217,
+       "n": 97
+      },
+      "2026-03": {
+       "mean_return": 0.002687226557916704,
+       "n": 44
+      },
+      "2026-04": {
+       "mean_return": -0.0005537878003492356,
+       "n": 44
+      },
+      "2026-05": {
+       "mean_return": 9.152193588454042e-06,
+       "n": 56
+      },
+      "2026-06": {
+       "mean_return": 0.0020786918736538647,
+       "n": 93
+      }
+     },
+     "cluster_describe": {
+      "mean": 0.00023124468458938943,
+      "median": 0.0005757969049209316,
+      "n": 398,
+      "sd": 0.008207415406364351,
+      "share_positive": 0.5577889447236181,
+      "t": 0.5620913210927395
+     },
+     "cost_minus_2bps_mean": 0.001754662463434511,
+     "cost_minus_4bps_mean": 0.001554662463434511,
+     "counts": {
+      "bursts": 72169,
+      "candidates": 2864,
+      "clusters": 398,
+      "eligible": 1896,
+      "events": 1915,
+      "exit_fallbacks": 1,
+      "funding_gap": 0,
+      "ineligible_by_reason": {
+       "activity": 5,
+       "no_spread_proxy": 8
+      },
+      "markets": 69,
+      "no_controls": 8,
+      "no_entry_fill": 1,
+      "ok": 1895,
+      "span_end": 0,
+      "ties": 390,
+      "traded_events": 1909
+     },
+     "entry_offset_profile": {
+      "10": 2.6986880446001027e-05,
+      "15": 0.00029790241370944567,
+      "5": 0.00023124468458938951,
+      "6": 0.00010970773211905696
+     },
+     "event_describe": {
+      "mean": 0.001954662463434511,
+      "median": 0.000550711541076998,
+      "n": 1895,
+      "sd": 0.04621279960820697,
+      "share_positive": 0.5408970976253298,
+      "t": 1.8412556858002822
+     },
+     "funding_sum": -0.018331999999999998,
+     "latency_entry_mean_ms": 1752.2791556728232,
+     "latency_exit_mean_ms": 2125.134036939314,
+     "share_adverse_gt_2pct": 0.06174142480211082,
+     "share_adverse_gt_30pct": 0.0010554089709762533,
+     "volume_weighted_mean_return": -0.00038852316647105726,
+     "without_2025_10_10": {
+      "cluster_mean": 3.154674251410004e-05,
+      "event_mean": 0.00028228154213974597,
+      "n_clusters": 397,
+      "n_events": 1855
+     },
+     "worst_adverse": 0.6287295543433716
+    },
+    "excluded_share": 0.0005274261603375527,
+    "h": 30,
+    "judgement": {
+     "boot_bound": -0.0007830462686703078,
+     "bound": -0.0007830462686703078,
+     "clause_a": false,
+     "clause_b": false,
+     "clause_c": true,
+     "clause_d": true,
+     "excluded_share": 0.0005274261603375527,
+     "mean": 0.00023124468458938943,
+     "n_clusters": 398,
+     "passed": false,
+     "t_bound": -0.0007578315360183833
+    },
+    "mean": 0.00023124468458938943,
+    "n_clusters": 398,
+    "passed": false,
+    "side": "S",
+    "t_bound": -0.0007578315360183833,
+    "trial_id": "S-30"
+   },
+   "S-60": {
+    "boot_bound": -9.181234812119892e-05,
+    "bound": -9.181234812119892e-05,
+    "claim": {
+     "claim_bound": -9.65321051020258e-05,
+     "claim_clusters": 398,
+     "claim_holds": false,
+     "claim_mean": 0.0007956923171792906
+    },
+    "claim_bound": -9.65321051020258e-05,
+    "claim_clusters": 398,
+    "claim_holds": false,
+    "claim_mean": 0.0007956923171792906,
+    "clause_a": true,
+    "clause_b": false,
+    "clause_c": true,
+    "clause_d": true,
+    "counts": {
+     "bursts": 72169,
+     "candidates": 2864,
+     "clusters": 398,
+     "eligible": 1896,
+     "events": 1915,
+     "exit_fallbacks": 0,
+     "funding_gap": 2,
+     "ineligible_by_reason": {
+      "activity": 5,
+      "no_spread_proxy": 8
+     },
+     "markets": 69,
+     "no_controls": 8,
+     "no_entry_fill": 1,
+     "ok": 1895,
+     "span_end": 0,
+     "ties": 391,
+     "traded_events": 1909
+    },
+    "descriptive": {
+     "account_run": {
+      "mean_return": 0.0029463129952638435,
+      "skipped": 20,
+      "taken": 1875,
+      "total_usd_profit": 55.24336866119707
+     },
+     "burst_duration_median": 7.0,
+     "burst_duration_p90": 17.0,
+     "by_class": {
+      "crypto": {
+       "mean_return": 0.0029549270388189814,
+       "n": 1841
+      },
+      "tradfi": {
+       "mean_return": 0.00045391005733155554,
+       "n": 47
+      },
+      "unclassified": {
+       "mean_return": -0.0038880701072310487,
+       "n": 7
+      }
+     },
+     "by_market": [
+      {
+       "market_id": 0,
+       "mean_return": 0.00031214894741555513,
+       "n": 607,
+       "symbol": "ETH"
+      },
+      {
+       "market_id": 1,
+       "mean_return": 0.00038018566766849683,
+       "n": 456,
+       "symbol": "BTC"
+      },
+      {
+       "market_id": 24,
+       "mean_return": 0.0010999186927551417,
+       "n": 270,
+       "symbol": "HYPE"
+      },
+      {
+       "market_id": 2,
+       "mean_return": 0.0006530228114474622,
+       "n": 161,
+       "symbol": "SOL"
+      },
+      {
+       "market_id": 71,
+       "mean_return": 0.006636611610297341,
+       "n": 41,
+       "symbol": "XPL"
+      },
+      {
+       "market_id": 45,
+       "mean_return": -0.003225732335780298,
+       "n": 32,
+       "symbol": "PUMP"
+      },
+      {
+       "market_id": 83,
+       "mean_return": 0.015806927438846773,
+       "n": 26,
+       "symbol": "ASTER"
+      },
+      {
+       "market_id": 29,
+       "mean_return": 0.006254403432580069,
+       "n": 25,
+       "symbol": "ENA"
+      },
+      {
+       "market_id": 25,
+       "mean_return": 0.0014537201181546073,
+       "n": 23,
+       "symbol": "BNB"
+      },
+      {
+       "market_id": 21,
+       "mean_return": 0.014009512678345538,
+       "n": 22,
+       "symbol": "FARTCOIN"
+      }
+     ],
+     "by_month": {
+      "2025-02": {
+       "mean_return": -0.011224298726691909,
+       "n": 4
+      },
+      "2025-03": {
+       "mean_return": 0.0009722089528258396,
+       "n": 23
+      },
+      "2025-04": {
+       "mean_return": -5.198189177682795e-05,
+       "n": 42
+      },
+      "2025-05": {
+       "mean_return": 0.0012011158253922563,
+       "n": 74
+      },
+      "2025-06": {
+       "mean_return": -0.000705442309803698,
+       "n": 102
+      },
+      "2025-07": {
+       "mean_return": 0.000907380240667758,
+       "n": 129
+      },
+      "2025-08": {
+       "mean_return": 0.0003083651071763394,
+       "n": 165
+      },
+      "2025-09": {
+       "mean_return": 0.0026307647473069913,
+       "n": 209
+      },
+      "2025-10": {
+       "mean_return": 0.01241750289982749,
+       "n": 313
+      },
+      "2025-11": {
+       "mean_return": 0.0012938701807084143,
+       "n": 216
+      },
+      "2025-12": {
+       "mean_return": -0.0007203500329320246,
+       "n": 132
+      },
+      "2026-01": {
+       "mean_return": -0.001530380007206455,
+       "n": 152
+      },
+      "2026-02": {
+       "mean_return": 0.004068698965389404,
+       "n": 97
+      },
+      "2026-03": {
+       "mean_return": 0.002665421802892377,
+       "n": 44
+      },
+      "2026-04": {
+       "mean_return": 0.00046439750162216765,
+       "n": 44
+      },
+      "2026-05": {
+       "mean_return": -0.0006889812787143543,
+       "n": 56
+      },
+      "2026-06": {
+       "mean_return": 0.0042142441805337605,
+       "n": 93
+      }
+     },
+     "cluster_describe": {
+      "mean": 0.0011373911317099485,
+      "median": 0.0011185548679061585,
+      "n": 398,
+      "sd": 0.010097327770769706,
+      "share_positive": 0.5728643216080402,
+      "t": 2.2472165237697697
+     },
+     "cost_minus_2bps_mean": 0.002667618976469504,
+     "cost_minus_4bps_mean": 0.0024676189764695038,
+     "counts": {
+      "bursts": 72169,
+      "candidates": 2864,
+      "clusters": 398,
+      "eligible": 1896,
+      "events": 1915,
+      "exit_fallbacks": 0,
+      "funding_gap": 2,
+      "ineligible_by_reason": {
+       "activity": 5,
+       "no_spread_proxy": 8
+      },
+      "markets": 69,
+      "no_controls": 8,
+      "no_entry_fill": 1,
+      "ok": 1895,
+      "span_end": 0,
+      "ties": 391,
+      "traded_events": 1909
+     },
+     "entry_offset_profile": {
+      "10": 0.0009204471785943937,
+      "15": 0.0011917237689357753,
+      "5": 0.0011373911317099483,
+      "6": 0.0010133400762309547
+     },
+     "event_describe": {
+      "mean": 0.002867618976469504,
+      "median": 0.0007886103824855782,
+      "n": 1895,
+      "sd": 0.05034354644725582,
+      "share_positive": 0.5403693931398417,
+      "t": 2.4796035342256184
+     },
+     "funding_sum": -0.02488499999999999,
+     "latency_entry_mean_ms": 1752.2791556728232,
+     "latency_exit_mean_ms": 3558.002110817942,
+     "share_adverse_gt_2pct": 0.10712401055408971,
+     "share_adverse_gt_30pct": 0.0010554089709762533,
+     "volume_weighted_mean_return": 0.0011117913880793011,
+     "without_2025_10_10": {
+      "cluster_mean": 0.0009058788792988961,
+      "event_mean": 0.0009230338257971999,
+      "n_clusters": 397,
+      "n_events": 1855
+     },
+     "worst_adverse": 0.6287295543433716
+    },
+    "excluded_share": 0.0005274261603375527,
+    "h": 60,
+    "judgement": {
+     "boot_bound": -9.181234812119892e-05,
+     "bound": -9.181234812119892e-05,
+     "clause_a": true,
+     "clause_b": false,
+     "clause_c": true,
+     "clause_d": true,
+     "excluded_share": 0.0005274261603375527,
+     "mean": 0.0011373911317099485,
+     "n_clusters": 398,
+     "passed": false,
+     "t_bound": -7.943856378791504e-05
+    },
+    "mean": 0.0011373911317099485,
+    "n_clusters": 398,
+    "passed": false,
+    "side": "S",
+    "t_bound": -7.943856378791504e-05,
+    "trial_id": "S-60"
+   }
+  }
+ },
+ "versions": {
+  "numpy": "2.5.4",
+  "pandas": "3.0.6",
+  "python": "3.12.15",
+  "scipy": "1.18.1"
+ }
+}
