@@ -139,6 +139,13 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'scripts/research/py/lighter/lock.py (LEDGER_ID lighter-l1, TRIALS = len(GRID)), the declared stage 2 grid on Lighter perpetuals: F1 to F5 as 57 signal configurations x 6 holds x 3 exits x 2 universes = 2,052, plus F6 as 6 x 2 = 12. Development 2025-07-01 to 2026-06-30, one confirmation slice 2026-07-01 to 2026-10-31 read once. The 20 shift runs and 20 sign-flip runs of the noise control set the bars and add no trials. Registration anchor: scripts/research/py/records/lighter_l1_registration.json.',
   },
+  {
+    id: 'horizon-e1',
+    date: '2026-11-14',
+    trials: 4,
+    source:
+      'scripts/research/py/horizon/e1/lock.py (LEDGER_ID horizon-e1, TRIALS = 4: class T monitoring-tag notices and class D spot delisting notices x exits at 4 h and 24 h), BTC-hedged shorts on Binance USDT-M perpetuals opened in the second full minute after the notice stamp, one read of the frozen event record scripts/research/py/records/horizon_e1_events.json (notices 2022-01-01 to 2026-11-12). The claim nulls (placebo days, matched controls) and the entry-delay profile add no trial. Registration anchor: scripts/research/py/records/horizon_e1_registration.json.',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */
