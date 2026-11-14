@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: horizon-l1 result: ONE TRIAL PASSES (S-120, forced-sell long held 115 minutes), the claim line does not (ledger stays 4,497)
+- **Run:** one registered run on 2026-11-14 (VPS, research image, no network, 3.5 minutes) at code digest `f43d62d0c716...8d39`, registration commit `cbead3c8`, anchor matched. Trimmed record `scripts/research/py/records/horizon_l1_result.json` (per-event rows removed, the full file `~/lighter-track/horizon-e1/out/horizon_l1_result.json` on the VPS has sha256 `83e8d414...00c0`).
+- **Judged result (day clusters, bound at level 0.05 / 6, clauses a mean at least +5 bps, b bound above +1.3 bps, c at least 30 clusters, d at most 10% lost entries):**
+
+  | Trial | Clusters | Mean | Bound | Passed |
+  |:--|--:|--:|--:|:--|
+  | S-30 | 398 | +2.3 bps | -7.8 bps | no (a, b fail) |
+  | S-60 | 398 | +11.4 bps | -0.9 bps | no (b fails) |
+  | S-120 | 398 | +19.6 bps | +2.6 bps | **yes** |
+  | B-30 | 338 | +2.3 bps | -6.8 bps | no (a, b fail) |
+  | B-60 | 338 | +7.0 bps | -4.7 bps | no (b fails) |
+  | B-120 | 338 | +14.3 bps | -0.1 bps | no (b fails by a hair) |
+
+- **S-120 in detail (descriptive, not judged):** cluster t 2.94, 60% of day clusters positive, event mean +35.5 bps, median +9.4 bps, volume-weighted +40.8 bps. Without 2025-10-10 the cluster mean is +16.9 bps over 397 clusters and the event mean +12.9 bps. October 2025 alone averages +143 bps over 313 events, the other months with 20 or more events between -14 and +49 bps (February 2025, 4 events, -165 bps). Crypto symbols +37 bps, traditional-market perps -12 bps (47 events). ETH +5.2 bps (607 events), BTC +2.8 (456), HYPE +16.4 (270), small coins larger. After 2 and 4 bps of extra cost the event mean is +33.5 and +31.5 bps. Entry at E + 5, 6, 10 and 15 minutes reads +19.6, +18.3, +17.2 and +19.8 bps. 18% of events moved more than 2% against the trade inside the hold, 0.2% more than 30%, worst 63%. The 10 USD account run took 1,869 of 1,895 trades and made +64 USD on 18,690 USD of notional. Funding summed -3.9 points over the events (longs paid).
+- **Claim line (rule 8 and 9):** the matched-control excess of S-120 is +11.6 bps with a one-sided bound at level 0.05 of -0.2 bps, so the burst is not shown to be what pays: a rebound after any similar fall paid about the same. Rule 9 says the bet stays eligible for tier 2 on its own result. The other five trials also fail the claim line.
+- **Reading (lead, opinion):** a pass of the registered clauses, with the bound clearing its hurdle by 1.3 bps, one trial in six at a level already divided by six, a development read on days the earlier Lighter study explored for other rules, a result that leans on October 2025, and no separation from a plain rebound. It makes the liquidation reversal eligible for gate G0 of the tier 2 plan and nothing more. The fill probe (G3), the owner's gates and the confirmation read of rule 11 (2026-07-01 to 2026-10-31, a regime after Lighter removed its oracle price caps, its own lock, its own liquidation pass and the owner's signature) are all still owed. No money moved.
+- **Prediction check:** the lead registered about 0.1 that any trial passes. One did. The forced-sell long is positive at 60 and 120 minutes as predicted (0.6), the forced-buy short is the weaker side as predicted, and the predicted failure (the lower bound) hit five of six trials.
+
 ### Added: horizon-l1 lock registered (ledger 4,491 to 4,497, no return computed)
 - **Lock:** `scripts/research/py/horizon/l1/lock.py` is the specification and the code beside it is part of it (ledger id `horizon-l1`, digest `f43d62d0c716...8d39`, anchor `scripts/research/py/records/horizon_l1_registration.json`, code commit `d4d4fa13`). Taker orders 5 minutes after the end of a liquidation burst on Lighter perpetuals: a long after forced selling, a short after forced buying, exits at E + 30, 60 and 120 minutes, 6 trials, day clusters, pass clauses mean at least +5 bps, one-sided bound above +1.3 bps at level 0.05 / 6, at least 30 clusters, at most 10% of events lost to a missing entry fill. Data 2025-01-17 to 2026-06-30 only, the 2025-10-10 crash left in. The owner signed the digest in chat on 2026-11-14.
 - **Source and limits:** one working paper (Jia, Moallemi, Wang and Zeng, SSRN 7270041) on Hyperliquid, a move of the mid and not a trade. This is a development read on days that the earlier Lighter study explored for other rules. The confirmation slice 2026-07-01 to 2026-10-31 stays unread.
