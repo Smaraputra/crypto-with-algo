@@ -138,6 +138,9 @@ def _setup_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str
     fake_lighter_lock = tmp_path / "fake_lighter_lock.py"
     fake_lighter_lock.write_text("# fake lighter lock\n", encoding="utf-8")
 
+    # A repository root is assumed to exist so that the injected runner decides the git state; tests of the
+    # git-less image set this to None again.
+    monkeypatch.setattr(run_mod, "_find_repo_root", lambda start: tmp_path)
     monkeypatch.setattr(run_mod, "_fold_trades_path", lambda: fake_fold_trades)
     monkeypatch.setattr(run_mod, "_lighter_lock_path", lambda: fake_lighter_lock)
     lock.lock_digest.cache_clear()
@@ -145,6 +148,7 @@ def _setup_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str
     expected_hashes = {
         "fold_manifest_sha256": hashlib.sha256(fold_manifest.read_bytes()).hexdigest(),
         "fold_trades_sha256": hashlib.sha256(fake_fold_trades.read_bytes()).hexdigest(),
+        "funding_files_sha256": hashlib.sha256(b"").hexdigest(),
         "funding_manifest_sha256": hashlib.sha256(funding_manifest.read_bytes()).hexdigest(),
         "ledger_id": lock.LEDGER_ID,
         "lighter_lock_sha256": hashlib.sha256(fake_lighter_lock.read_bytes()).hexdigest(),
@@ -240,6 +244,7 @@ def test_register_check_matching_anchor(
     [
         "fold_manifest_sha256",
         "fold_trades_sha256",
+        "funding_files_sha256",
         "funding_manifest_sha256",
         "ledger_id",
         "lighter_lock_sha256",
@@ -459,6 +464,9 @@ def test_run_guard_git_unavailable_without_env(
     env = _setup_test_env(tmp_path, monkeypatch)
     out_path = tmp_path / "out.json"
 
+    # Simulate git-less image so environment attestation is attempted
+    monkeypatch.setattr(run_mod, "_find_repo_root", lambda start: None)
+
     def failing_runner(cmd: list[str], cwd: Any = None) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="git error")
 
@@ -508,6 +516,8 @@ def test_run_guard_git_unavailable_with_invalid_clean_env(
     env = _setup_test_env(tmp_path, monkeypatch)
     out_path = tmp_path / "out.json"
 
+    monkeypatch.setattr(run_mod, "_find_repo_root", lambda start: None)
+
     def failing_runner(cmd: list[str], cwd: Any = None) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="git error")
 
@@ -555,6 +565,7 @@ def test_run_guard_git_unavailable_with_invalid_clean_env(
     [
         "fold_manifest_sha256",
         "fold_trades_sha256",
+        "funding_files_sha256",
         "funding_manifest_sha256",
         "ledger_id",
         "lighter_lock_sha256",
@@ -724,6 +735,7 @@ def test_run_success_git_and_attested(
         "files_read",
         "fold_manifest_sha256",
         "fold_trades_sha256",
+        "funding_files_sha256",
         "funding_manifest_sha256",
         "hard_last_date",
         "ledger_id",
@@ -745,6 +757,7 @@ def test_run_success_git_and_attested(
     assert payload["lock"]["digest"] == lock.lock_digest()
     assert payload["lock"]["git_head"] == runner.head
     assert payload["lock"]["attested_by_environment"] is False
+    assert payload["funding_files_sha256"] == hashlib.sha256(b"").hexdigest()
     assert payload["files_read"] == {"panel/market=1.parquet": "dummy_panel_sha256"}
     assert payload["report"] == stub_report
 
@@ -781,6 +794,7 @@ def test_run_success_git_and_attested(
     def failing_runner(cmd: list[str], cwd: Any = None) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="git error")
 
+    monkeypatch.setattr(run_mod, "_find_repo_root", lambda start: None)
     monkeypatch.setenv("HORIZON_GIT_HEAD", "attested_commit_abcdef")
     monkeypatch.setenv("HORIZON_TREE_CLEAN", "1")
 
@@ -808,6 +822,84 @@ def test_run_success_git_and_attested(
     payload_attested = json.loads(out_attested.read_text(encoding="utf-8"))
     assert payload_attested["lock"]["attested_by_environment"] is True
     assert payload_attested["lock"]["git_head"] == "attested_commit_abcdef"
+
+
+def test_git_state_git_dir_present_failing_runner_raises_despite_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When .git exists above here, failing runner raises GuardError even if env vars are valid."""
+    repo = tmp_path / "repo"
+    git_dir = repo / ".git"
+    git_dir.mkdir(parents=True)
+    here = repo / "scripts" / "research" / "py" / "horizon" / "l1" / "run.py"
+    here.parent.mkdir(parents=True)
+    here.touch()
+
+    monkeypatch.setenv("HORIZON_GIT_HEAD", "abc1234567890abcdef1234567890abcdef1234")
+    monkeypatch.setenv("HORIZON_TREE_CLEAN", "1")
+
+    def failing_runner(cmd: list[str], cwd: Any = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="fatal: git command failed")
+
+    with pytest.raises(run_mod.GuardError, match="git rev-parse HEAD failed"):
+        run_mod.git_state(runner=failing_runner, here=here)
+
+
+def test_git_state_no_git_dir_env_attests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no .git exists above here, valid environment vars attest git state."""
+    tree = tmp_path / "tree"
+    here = tree / "sub" / "run.py"
+    here.parent.mkdir(parents=True)
+    here.touch()
+
+    monkeypatch.setattr(run_mod, "_find_repo_root", lambda start: None)
+    monkeypatch.setenv("HORIZON_GIT_HEAD", "attested_commit_456")
+    monkeypatch.setenv("HORIZON_TREE_CLEAN", "1")
+
+    state = run_mod.git_state(here=here)
+    assert state["head"] == "attested_commit_456"
+    assert state["attested"] is True
+    assert state["clean"] is True
+
+
+def test_git_state_no_git_dir_no_env_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no .git exists above here and no env vars set, raises GuardError."""
+    tree = tmp_path / "tree"
+    here = tree / "sub" / "run.py"
+    here.parent.mkdir(parents=True)
+    here.touch()
+
+    monkeypatch.setattr(run_mod, "_find_repo_root", lambda start: None)
+    monkeypatch.delenv("HORIZON_GIT_HEAD", raising=False)
+    monkeypatch.delenv("HORIZON_TREE_CLEAN", raising=False)
+
+    with pytest.raises(run_mod.GuardError, match="HORIZON_GIT_HEAD is missing or empty"):
+        run_mod.git_state(here=here)
+
+
+def test_find_repo_root_detects_git_and_none_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_find_repo_root finds parent with .git directory and returns None when missing."""
+    repo = tmp_path / "mock_repo"
+    (repo / ".git").mkdir(parents=True)
+    file_in_repo = repo / "dir1" / "dir2" / "file.py"
+    file_in_repo.parent.mkdir(parents=True)
+    file_in_repo.touch()
+
+    assert run_mod._find_repo_root(file_in_repo) == repo
+
+    isolated = tmp_path / "no_repo" / "sub" / "file.py"
+    isolated.parent.mkdir(parents=True)
+    isolated.touch()
+
+    orig_exists = Path.exists
+
+    def safe_exists(p: Path) -> bool:
+        if str(p).endswith(".git") and not str(p).startswith(str(tmp_path / "no_repo")):
+            return False
+        return orig_exists(p)
+
+    monkeypatch.setattr(Path, "exists", safe_exists)
+    assert run_mod._find_repo_root(isolated) is None
 
 
 # -------------------------------------------------------------------------------------------------------------------
@@ -882,6 +974,7 @@ def test_event_count_on_fake_store_never_touches_fills(
     assert "1" in payload["markets"]
 
     m1_s = payload["markets"]["1"]["S"]
+    assert m1_s["bursts"] == 3
     assert m1_s["candidates"] == 3
     assert m1_s["events"] == 3
     assert m1_s["traded_events"] == 2
@@ -889,6 +982,10 @@ def test_event_count_on_fake_store_never_touches_fills(
     assert m1_s["eligible"] == 1
     assert m1_s["distinct_days"] == 1
     assert len(m1_s["by_month"]) >= 1
+
+    tot_s = payload["total"]["S"]
+    assert tot_s["bursts"] == 3
+    assert tot_s["candidates"] == 3
 
 
 # -------------------------------------------------------------------------------------------------------------------

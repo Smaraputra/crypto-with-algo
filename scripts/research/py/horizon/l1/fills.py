@@ -124,11 +124,15 @@ def order_fill(
     fallback_max = boundary_index + lock.EXIT_SEARCH_MIN
     fallback_min = max(0, min_index)
     start_search = min(fallback_max, n_records - 1)
-    fallback_sp = spm / 2.0
 
     for m in range(start_search, fallback_min - 1, -1):
         px_val = md.last_px[m]
         if np.isfinite(px_val):
+            sp_cands = [spm, float(xs[m])]
+            if m >= 1:
+                sp_cands.append(float(xs[m - 1]))
+            sp = max(sp_cands)
+            fallback_sp = sp / 2.0
             if order_side == 1:
                 fill_px = float(px_val * (1.0 + fallback_sp / 10_000.0))
             else:

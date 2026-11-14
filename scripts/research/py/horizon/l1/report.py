@@ -11,12 +11,20 @@ from typing import Any
 
 import numpy as np
 
-from horizon.e1.stats import bootstrap_bound, describe, t_bound
 from horizon.l1 import lock
 from horizon.l1.controls import find_controls, liq_any_prefix, r_pre_series
 from horizon.l1.data import Store
-from horizon.l1.events import eligible, find_candidates, select_events, spread_median, x_series
+from horizon.l1.events import (
+    eligible,
+    find_bursts,
+    find_candidates,
+    select_events,
+    span_end_dropped,
+    spread_median,
+    x_series,
+)
 from horizon.l1.fills import simulate_trade
+from horizon.l1.stats import bootstrap_bound, describe, t_bound
 
 __all__ = ["run_all", "simulate_account", "to_json_safe"]
 
@@ -128,8 +136,9 @@ def run_all(store: Store, market_ids: Sequence[int] | None = None) -> dict:
         sym_class = get_symbol_class(md.symbol)
 
         for side in lock.SIDES:
+            bursts = find_bursts(md, side)
             candidates = find_candidates(md, side)
-            side_bursts[side] += len(candidates)
+            side_bursts[side] += len(bursts)
             side_candidates[side] += len(candidates)
             events = select_events(candidates)
             side_events[side] += len(events)
@@ -141,8 +150,7 @@ def run_all(store: Store, market_ids: Sequence[int] | None = None) -> dict:
                 side_traded_events[side] += 1
 
                 d_idx = e.d_index
-                last_search = d_idx + (lock.EXIT_OFFSETS_MIN[-1] - lock.ENTRY_OFFSET_MIN) + lock.EXIT_SEARCH_MIN + 1
-                if last_search >= len(md.present):
+                if span_end_dropped(d_idx, len(md.present)):
                     side_span_end[side] += 1
                     continue
 

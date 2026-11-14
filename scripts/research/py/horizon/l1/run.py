@@ -19,24 +19,27 @@ import pandas as pd
 import scipy
 
 from horizon.l1 import lock, panel, report
-from horizon.l1.data import Store, sha256_file
-from horizon.l1.events import eligible, find_candidates, select_events, x_series
+from horizon.l1.data import Store, funding_files_digest, sha256_file
+from horizon.l1.events import (
+    eligible,
+    find_bursts,
+    find_candidates,
+    select_events,
+    span_end_dropped,
+    x_series,
+)
 
 
 class GuardError(RuntimeError):
     """Raised when a pre-registration, git, or anchor guard fails."""
 
 
-def _find_repo_root(start: Path) -> Path:
-    """Find git repository root by ascending until .git is found."""
+def _find_repo_root(start: Path) -> Path | None:
+    """Find git repository root by ascending until .git (file or directory) is found, or None."""
     for p in [start, *start.parents]:
         if (p / ".git").exists():
             return p
-    if len(start.parents) >= 5:
-        return start.parents[4]
-    if len(start.parents) >= 4:
-        return start.parents[3]
-    return start
+    return None
 
 
 def _default_runner(cmd: list[str], cwd: Path | str | None = None) -> subprocess.CompletedProcess[str]:
@@ -56,39 +59,35 @@ def git_state(
     if here is None:
         here = Path(__file__).resolve().parent
 
-    is_git_repo = False
-    git_head = ""
-    is_clean = False
-
-    try:
-        res_head = runner(["git", "-C", str(here), "rev-parse", "HEAD"])
-        rc_head = getattr(res_head, "returncode", -1)
-        out_head = getattr(res_head, "stdout", "")
-        if rc_head == 0 and out_head.strip():
-            is_git_repo = True
+    repo_root = _find_repo_root(here)
+    if repo_root is not None:
+        try:
+            res_head = runner(["git", "-C", str(here), "rev-parse", "HEAD"])
+            rc_head = getattr(res_head, "returncode", -1)
+            out_head = getattr(res_head, "stdout", "")
+            if rc_head != 0 or not out_head.strip():
+                raise GuardError(f"git rev-parse HEAD failed with exit code {rc_head}")
             git_head = out_head.strip()
 
-            repo_root = _find_repo_root(here)
             res_status = runner(
                 ["git", "-C", str(repo_root), "status", "--porcelain", "--", "scripts/research/py/horizon/l1"]
             )
             rc_status = getattr(res_status, "returncode", -1)
             out_status = getattr(res_status, "stdout", "")
-            if rc_status == 0:
-                is_clean = len(out_status.strip()) == 0
-            else:
-                is_clean = False
-    except (FileNotFoundError, OSError, Exception):
-        is_git_repo = False
+            if rc_status != 0:
+                raise GuardError(f"git status failed with exit code {rc_status}")
+            if len(out_status.strip()) != 0:
+                raise GuardError("git working tree under scripts/research/py/horizon/l1 is not clean")
 
-    if is_git_repo:
-        if not is_clean:
-            raise GuardError("git working tree under scripts/research/py/horizon/l1 is not clean")
-        return {
-            "attested": False,
-            "clean": True,
-            "head": git_head,
-        }
+            return {
+                "attested": False,
+                "clean": True,
+                "head": git_head,
+            }
+        except GuardError:
+            raise
+        except Exception as exc:
+            raise GuardError(f"git command execution failed: {exc}") from exc
 
     head = env.get("HORIZON_GIT_HEAD")
     if not head or not head.strip():
@@ -192,6 +191,7 @@ def event_count_cmd(
     markets_res: dict[str, Any] = {}
     total_counts: dict[str, Any] = {
         side: {
+            "bursts": 0,
             "by_month": defaultdict(int),
             "candidates": 0,
             "distinct_days": 0,
@@ -215,6 +215,8 @@ def event_count_cmd(
         }
 
         for side in lock.SIDES:
+            bursts = find_bursts(md, side)
+            n_bursts = len(bursts)
             candidates = find_candidates(md, side)
             n_candidates = len(candidates)
             evs = select_events(candidates)
@@ -234,8 +236,7 @@ def event_count_cmd(
                 n_traded += 1
 
                 d_idx = e.d_index
-                last_search = d_idx + (lock.EXIT_OFFSETS_MIN[-1] - lock.ENTRY_OFFSET_MIN) + lock.EXIT_SEARCH_MIN + 1
-                if last_search >= len(md.present):
+                if span_end_dropped(d_idx, len(md.present)):
                     n_span_end += 1
                     continue
 
@@ -257,6 +258,7 @@ def event_count_cmd(
                 by_month[month_str] += 1
                 total_counts[side]["by_month"][month_str] += 1
 
+            total_counts[side]["bursts"] += n_bursts
             total_counts[side]["candidates"] += n_candidates
             total_counts[side]["events"] += n_events
             total_counts[side]["traded_events"] += n_traded
@@ -268,6 +270,7 @@ def event_count_cmd(
                 )
 
             side_summary = {
+                "bursts": n_bursts,
                 "by_month": dict(sorted(by_month.items())),
                 "candidates": n_candidates,
                 "distinct_days": len(distinct_days_set),
@@ -285,6 +288,7 @@ def event_count_cmd(
     for side in lock.SIDES:
         tc = total_counts[side]
         total_out[side] = {
+            "bursts": tc["bursts"],
             "by_month": dict(sorted(tc["by_month"].items())),
             "candidates": tc["candidates"],
             "distinct_days": len(total_days[side]),
@@ -345,6 +349,7 @@ def register_check(
     result: dict[str, Any] = {
         "fold_manifest_sha256": sha256_file(fold_manifest_p),
         "fold_trades_sha256": sha256_file(fold_trades_p),
+        "funding_files_sha256": funding_files_digest(funding_p),
         "funding_manifest_sha256": sha256_file(funding_manifest_p),
         "ledger_id": lock.LEDGER_ID,
         "lighter_lock_sha256": sha256_file(lighter_lock_p),
@@ -395,6 +400,7 @@ def run_pipeline(
     *,
     runner: Callable[..., Any] | None = None,
     store_factory: Callable[..., Any] | None = None,
+    here: Path | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Execute guarded run on fold, panel, liquidation, and funding data."""
     # (a) Refuse an existing --out
@@ -403,7 +409,7 @@ def run_pipeline(
         raise GuardError(f"output file already exists: {out_p}")
 
     # (b) Git guard for scripts/research/py/horizon/l1
-    git_info = git_state(runner=runner)
+    git_info = git_state(runner=runner, here=here)
     if not git_info.get("clean", False):
         raise GuardError("git working tree under scripts/research/py/horizon/l1 is not clean")
 
@@ -423,6 +429,7 @@ def run_pipeline(
     required_keys = (
         "fold_manifest_sha256",
         "fold_trades_sha256",
+        "funding_files_sha256",
         "funding_manifest_sha256",
         "ledger_id",
         "lighter_lock_sha256",
@@ -472,6 +479,7 @@ def run_pipeline(
     expected_hashes = {
         "fold_manifest_sha256": sha256_file(fold_manifest_p),
         "fold_trades_sha256": sha256_file(fold_trades_p),
+        "funding_files_sha256": funding_files_digest(funding_p),
         "funding_manifest_sha256": sha256_file(funding_manifest_p),
         "ledger_id": lock.LEDGER_ID,
         "lighter_lock_sha256": sha256_file(lighter_lock_p),
@@ -510,6 +518,7 @@ def run_pipeline(
         "files_read": store.files_read() if hasattr(store, "files_read") else {},
         "fold_manifest_sha256": expected_hashes["fold_manifest_sha256"],
         "fold_trades_sha256": expected_hashes["fold_trades_sha256"],
+        "funding_files_sha256": expected_hashes["funding_files_sha256"],
         "funding_manifest_sha256": expected_hashes["funding_manifest_sha256"],
         "hard_last_date": lock.HARD_LAST_DATE.isoformat(),
         "ledger_id": lock.LEDGER_ID,
@@ -595,6 +604,7 @@ def main(
     *,
     runner: Callable[..., Any] | None = None,
     store_factory: Callable[..., Any] | None = None,
+    here: Path | None = None,
 ) -> int:
     """Command-line entrypoint for horizon-l1 run CLI."""
     parser = build_parser()
@@ -650,6 +660,7 @@ def main(
                 args.out,
                 runner=runner,
                 store_factory=store_factory,
+                here=here,
             )
             for line in summary_lines:
                 print(line)

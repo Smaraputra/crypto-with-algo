@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -12,6 +16,7 @@ from horizon.l1 import data as data_mod
 from horizon.l1 import lock
 from horizon.l1.data import MarketData
 from horizon.l1.report import run_all, simulate_account
+from horizon.l1.stats import bootstrap_bound, t_bound
 
 
 class FakeStore:
@@ -152,6 +157,10 @@ def test_horizon_l1_report_synthetic(monkeypatch: pytest.MonkeyPatch) -> None:
     md.liq_sell_usd[250:253] = 50_000.0
     md.n_liq_sell[250:253] = 1
 
+    # Extra undersized sell burst at [2000, 2002] (< BURST_MIN_USD 100_000, < BURST_MIN_ROWS 3)
+    md.liq_sell_usd[2000:2003] = 10_000.0
+    md.n_liq_sell[2000:2003] = 1
+
     # 2. Traded Event 1 (Day 1, side S forced-sell):
     # i0 = 1500, i1 = 1502, e_index = 1503, D = 1508
     md.liq_sell_usd[1500:1503] = 50_000.0
@@ -187,7 +196,7 @@ def test_horizon_l1_report_synthetic(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # 5. Span-end drop candidate (Day 3, side S):
     # i0 = 4370, i1 = 4372, e_index = 4373, D = 4378
-    # D + 131 = 4509 >= 4500, so dropped for span end
+    # D + 130 = 4508 >= 4500, so dropped for span end
     md.liq_sell_usd[4370:4373] = 50_000.0
     md.n_liq_sell[4370:4373] = 2
 
@@ -206,8 +215,8 @@ def test_horizon_l1_report_synthetic(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # --- Assertion 1: Exact event and trade counts ---
     s_counts = res["trials"]["S-30"]["counts"]
-    assert s_counts["bursts"] == 5  # Burst A, Burst B, Event 1, Event 2, Span-end burst
-    assert s_counts["candidates"] == 5
+    assert s_counts["bursts"] == 6  # Burst A, Burst B, Undersized, Event 1, Event 2, Span-end burst
+    assert s_counts["candidates"] == 5  # Undersized burst filtered out
     assert s_counts["events"] == 4  # Burst B dropped by retrigger
     assert s_counts["traded_events"] == 3  # Burst A is before EVENTS_FROM_MS
     assert s_counts["span_end"] == 1  # Last burst dropped by span end
@@ -267,9 +276,10 @@ def test_horizon_l1_report_synthetic(monkeypatch: pytest.MonkeyPatch) -> None:
     # --- Assertion 5: Span-end drop ---
     assert s_counts["span_end"] == 1
 
-    # --- Assertion 6: Retrigger bookkeeping ---
-    # Candidate B was blocked by retrigger: bursts = 5, events = 4
-    assert s_counts["bursts"] == 5
+    # --- Assertion 6: Retrigger and burst bookkeeping ---
+    # Candidate B was blocked by retrigger: bursts = 6, candidates = 5, events = 4
+    assert s_counts["bursts"] == 6
+    assert s_counts["candidates"] == 5
     assert s_counts["events"] == 4
 
     # --- Assertion 7: Claim excess against hand-built control ---
@@ -297,3 +307,248 @@ def test_horizon_l1_report_synthetic(monkeypatch: pytest.MonkeyPatch) -> None:
     dumped = json.dumps(res)
     assert "NaN" not in dumped
     assert "Infinity" not in dumped
+
+
+# -------------------------------------------------------------------------------------------------------------------
+# Helper and tests for Item 9 (gaps 9a through 9f)
+# -------------------------------------------------------------------------------------------------------------------
+
+
+def make_35_event_world(unfillable_days: Sequence[int] = ()) -> tuple[MarketData, FakeStore]:
+    """Build a world with 35 S-events across 35 distinct UTC days."""
+    n_days = 38
+    n_min = n_days * 1440
+    md = make_test_md(n_min=n_min, market_id=1, symbol="BTC")
+
+    # Baseline: active, flat price 100.0 everywhere
+    md.present[:] = True
+    md.buy_usd[:] = 500.0
+    md.sell_usd[:] = 500.0
+    md.last_px[:] = 100.0
+    all_ms = md.ms_of(0) + np.arange(n_min, dtype=np.float64) * 60_000.0
+    md.first_buy_px[:] = 100.0
+    md.first_buy_ts[:] = all_ms + 600.0
+    md.first_sell_px[:] = 100.0
+    md.first_sell_ts[:] = all_ms + 600.0
+    md.last_buy_px[:] = 100.0
+    md.last_buy_ts[:] = all_ms + 600.0
+    md.last_sell_px[:] = 100.0
+    md.last_sell_ts[:] = all_ms + 600.0
+
+    # Place 35 bursts on days 1 to 35
+    for day in range(1, 36):
+        t0 = day * 1440 + 600
+        # Burst of 3 minutes (150k USD >= 100k, 3 rows >= 3)
+        md.liq_sell_usd[t0 : t0 + 3] = 50_000.0
+        md.n_liq_sell[t0 : t0 + 3] = 1
+
+        e_index = t0 + 3
+        d_index = e_index + 5  # t0 + 8
+
+        # Profile offset 10 entry price = 101.0
+        offset_10_idx = e_index + 10  # t0 + 13
+        md.first_buy_px[offset_10_idx] = 101.0
+        md.first_sell_px[offset_10_idx] = 101.0
+        md.last_buy_px[offset_10_idx] = 101.0
+        md.last_sell_px[offset_10_idx] = 101.0
+        md.last_px[offset_10_idx] = 101.0
+
+        # Exit prices at h in (30, 60, 120) -> 102.0
+        for h in lock.EXIT_OFFSETS_MIN:
+            exit_idx = e_index + h
+            md.first_sell_px[exit_idx] = 102.0
+            md.first_buy_px[exit_idx] = 102.0
+            md.last_sell_px[exit_idx] = 102.0
+            md.last_buy_px[exit_idx] = 102.0
+            md.last_px[exit_idx] = 102.0
+
+        # If unfillable on this day, clear prints at d_index
+        if day in unfillable_days:
+            md.first_buy_px[d_index] = np.nan
+            md.first_buy_ts[d_index] = np.nan
+            md.first_sell_px[d_index] = np.nan
+            md.first_sell_ts[d_index] = np.nan
+            md.last_buy_px[d_index] = np.nan
+            md.last_buy_ts[d_index] = np.nan
+            md.last_sell_px[d_index] = np.nan
+            md.last_sell_ts[d_index] = np.nan
+            md.last_px[d_index] = np.nan
+
+    store = FakeStore(market_data={1: md})
+    return md, store
+
+
+def test_report_world_35_events_all_clauses_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """35 events across 35 distinct UTC days with positive return pass all clauses for S-30."""
+    monkeypatch.setattr(data_mod, "GRID0_MS", 0)
+    monkeypatch.setattr(data_mod, "N_MIN", 38 * 1440)
+    monkeypatch.setattr(lock, "EVENTS_FROM_MS", 0)
+    monkeypatch.setattr(lock, "BOOT_RESAMPLES", 50)
+
+    _, store = make_35_event_world()
+    res = run_all(store)
+
+    s30 = res["trials"]["S-30"]
+    j = s30["judgement"]
+
+    assert j["clause_a"] is True
+    assert j["clause_b"] is True
+    assert j["clause_c"] is True
+    assert j["clause_d"] is True
+    assert j["passed"] is True
+    assert s30["passed"] is True
+
+    # Exact cluster mean: 35 days, each with net trade return 0.02
+    assert j["n_clusters"] == 35
+    assert j["mean"] == pytest.approx(0.02)
+    assert j["bound"] == pytest.approx(0.02)
+    assert j["excluded_share"] == pytest.approx(0.0)
+
+
+def test_report_world_unfillable_events_clause_d_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same world with 5 unfillable events at entry: excluded_share is 5/35 > 10%, clause_d fails."""
+    monkeypatch.setattr(data_mod, "GRID0_MS", 0)
+    monkeypatch.setattr(data_mod, "N_MIN", 38 * 1440)
+    monkeypatch.setattr(lock, "EVENTS_FROM_MS", 0)
+    monkeypatch.setattr(lock, "BOOT_RESAMPLES", 50)
+
+    _, store = make_35_event_world(unfillable_days=(1, 2, 3, 4, 5))
+    res = run_all(store)
+
+    s30 = res["trials"]["S-30"]
+    j = s30["judgement"]
+    counts = s30["counts"]
+
+    # All 35 events are eligible at D
+    assert counts["eligible"] == 35
+    assert counts["no_entry_fill"] == 5
+    assert counts["ok"] == 30
+    assert counts["clusters"] == 30
+
+    # Excluded share is 5 / 35 (approx 14.29%), exceeding MAX_EXCLUDED_SHARE (10%)
+    assert j["excluded_share"] == pytest.approx(5.0 / 35.0)
+    assert j["clause_d"] is False
+    assert j["passed"] is False
+    assert s30["passed"] is False
+
+
+def test_report_seed_and_generator_order_replay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replay bootstrap with default_rng(BOOT_SEED) over TRIAL_IDS and verify bounds match."""
+    monkeypatch.setattr(data_mod, "GRID0_MS", 0)
+    monkeypatch.setattr(data_mod, "N_MIN", 38 * 1440)
+    monkeypatch.setattr(lock, "EVENTS_FROM_MS", 0)
+    monkeypatch.setattr(lock, "BOOT_RESAMPLES", 50)
+
+    _, store = make_35_event_world()
+    res = run_all(store)
+
+    # Replay judgement generator
+    replay_rng = np.random.default_rng(lock.BOOT_SEED)
+    for trial_id in lock.TRIAL_IDS:
+        side = trial_id.split("-")[0]
+        if side == "S":
+            c_vals = np.full(35, 0.02, dtype=np.float64)
+        else:
+            c_vals = np.array([], dtype=np.float64)
+
+        expected_boot = bootstrap_bound(
+            c_vals,
+            replay_rng,
+            resamples=50,
+            alpha=lock.TRIAL_ALPHA,
+        )
+        actual_boot = res["trials"][trial_id]["judgement"]["boot_bound"]
+        if math.isnan(expected_boot):
+            assert actual_boot is None or math.isnan(actual_boot)
+        else:
+            assert actual_boot == pytest.approx(expected_boot)
+
+    # Replay claim generator (seeded BOOT_SEED + 1)
+    claim_replay_rng = np.random.default_rng(lock.BOOT_SEED + 1)
+    for trial_id in lock.TRIAL_IDS:
+        side = trial_id.split("-")[0]
+        if side == "S":
+            claim_c_vals = np.full(35, 0.02, dtype=np.float64)
+        else:
+            claim_c_vals = np.array([], dtype=np.float64)
+
+        expected_claim_boot = bootstrap_bound(
+            claim_c_vals,
+            claim_replay_rng,
+            resamples=50,
+            alpha=lock.CLAIM_ALPHA,
+        )
+        claim_tb = t_bound(claim_c_vals, alpha=lock.CLAIM_ALPHA)
+        expected_min = (
+            float(min(expected_claim_boot, claim_tb))
+            if not (math.isnan(expected_claim_boot) or math.isnan(claim_tb))
+            else float("nan")
+        )
+        actual_claim_bound = res["trials"][trial_id]["claim"]["claim_bound"]
+        if math.isnan(expected_min):
+            assert actual_claim_bound is None or math.isnan(actual_claim_bound)
+        else:
+            assert actual_claim_bound == pytest.approx(expected_min)
+
+
+def test_report_claim_excess_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hand-built flat controls produce zero return, so excess equals trade return and claim holds."""
+    monkeypatch.setattr(data_mod, "GRID0_MS", 0)
+    monkeypatch.setattr(data_mod, "N_MIN", 38 * 1440)
+    monkeypatch.setattr(lock, "EVENTS_FROM_MS", 0)
+    monkeypatch.setattr(lock, "BOOT_RESAMPLES", 50)
+
+    _, store = make_35_event_world()
+    res = run_all(store)
+
+    s30_claim = res["trials"]["S-30"]["claim"]
+    assert s30_claim["claim_clusters"] == 35
+    assert s30_claim["claim_mean"] == pytest.approx(0.02)
+    assert s30_claim["claim_bound"] == pytest.approx(0.02)
+    assert s30_claim["claim_holds"] is True
+
+
+def test_report_entry_offset_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Entry offset profile has keys '5', '6', '10', '15' and exact values for differing offsets."""
+    monkeypatch.setattr(data_mod, "GRID0_MS", 0)
+    monkeypatch.setattr(data_mod, "N_MIN", 38 * 1440)
+    monkeypatch.setattr(lock, "EVENTS_FROM_MS", 0)
+    monkeypatch.setattr(lock, "BOOT_RESAMPLES", 50)
+
+    _, store = make_35_event_world()
+    res = run_all(store)
+
+    profile = res["trials"]["S-30"]["descriptive"]["entry_offset_profile"]
+    assert set(profile.keys()) == {"5", "6", "10", "15"}
+
+    # Offset 5 entry at 100.0, exit at 102.0 -> return 0.02
+    assert profile["5"] == pytest.approx(0.02)
+    # Offset 6 entry at 100.0, exit at 102.0 -> return 0.02
+    assert profile["6"] == pytest.approx(0.02)
+    # Offset 10 entry at 101.0, exit at 102.0 -> return 1.0 / 101.0
+    assert profile["10"] == pytest.approx(1.0 / 101.0)
+    # Offset 15 entry at 100.0, exit at 102.0 -> return 0.02
+    assert profile["15"] == pytest.approx(0.02)
+
+
+def test_lock_digest_recomputation() -> None:
+    """lock_digest() equals the sha256 byte stream over sorted horizon/l1/*.py files."""
+    l1_dir = Path(lock.__file__).resolve().parent
+    paths = sorted(l1_dir.glob("*.py"), key=lambda p: p.name)
+    names = [p.name for p in paths]
+
+    # Verify covered names include stats.py, run.py, report.py, and lock.py
+    assert "stats.py" in names
+    assert "run.py" in names
+    assert "report.py" in names
+    assert "lock.py" in names
+
+    h = hashlib.sha256()
+    for p in paths:
+        h.update(p.name.encode() + b"\0")
+        h.update(p.read_bytes())
+        h.update(b"\0")
+    expected_digest = h.hexdigest()
+
+    lock.lock_digest.cache_clear()
+    assert lock.lock_digest() == expected_digest

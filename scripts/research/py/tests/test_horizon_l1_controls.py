@@ -323,12 +323,10 @@ def test_find_controls_fills_requirement(monkeypatch: pytest.MonkeyPatch) -> Non
     populate_active_and_fills(md, 0, 2_000, price=100.0)
 
     # Candidate at 500 has no first print of either side, so no entry fill exists for any order
-    # (a buy with no buy print would still fill through the sell print plus the spread)
     md.first_buy_px[500] = np.nan
     md.first_sell_px[500] = np.nan
 
     # Candidate at 800 has all fills
-    # (already populated)
 
     xs, xs_valid = x_series(md)
     liq_prefix = liq_any_prefix(md)
@@ -349,3 +347,54 @@ def test_find_controls_fills_requirement(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     assert 500 not in ctrls
     assert 800 in ctrls
+
+
+def test_control_window_start_lookback_t0(monkeypatch: pytest.MonkeyPatch) -> None:
+    """find_controls uses t0 (event_i0) for 30-day lookback, accepting candidate just inside and not before."""
+    # Ensure dense grid span covers n_min ~ 47,500 without monkeypatching CONTROL_LOOKBACK_DAYS
+    n_min = 47_500
+    monkeypatch.setattr(data_mod, "N_MIN", 50_000)
+
+    md = make_test_md(n_min=n_min)
+    populate_active_and_fills(md, 0, n_min, price=100.0)
+
+    # Event with 10-minute burst: i0 = 45_000, i1 = 45_009, E = 45_010, D = 45_015
+    event_i0 = 45_000
+    event_d_index = event_i0 + 15
+
+    # 30 days = 30 * 1440 = 43_200 minutes
+    # Lookback from t0: 45_000 - 43_200 = 1,800
+    # (Old lookback from D: 45_015 - 43_200 = 1,815)
+    cand_inside = 1800
+    cand_before = 1799
+
+    xs, xs_valid = x_series(md)
+    liq_prefix = liq_any_prefix(md)
+
+    # Set up r_pre so cand_inside has exact match (diff 0.0)
+    r_pre = np.full(n_min, np.nan, dtype=np.float64)
+    r_pre[event_d_index] = 0.05
+    # cand_inside r_pre matches event exactly
+    r_pre[cand_inside] = 0.05
+    # cand_before also matches
+    r_pre[cand_before] = 0.05
+
+    # Populate other distant candidates with worse r_pre so ranking prefers cand_inside
+    for x in (2500, 3000, 3500, 4000):
+        r_pre[x] = 0.10
+
+    ctrls = find_controls(
+        md=md,
+        xs=xs,
+        xs_valid=xs_valid,
+        event_d_index=event_d_index,
+        event_i0=event_i0,
+        liq_any_prefix=liq_prefix,
+        r_pre=r_pre,
+    )
+
+    # cand_inside (1800) is accepted and ranked first
+    assert cand_inside in ctrls
+    assert ctrls[0] == cand_inside
+    # cand_before (1799) is just before t0 - 30 * 1440 and is not accepted
+    assert cand_before not in ctrls

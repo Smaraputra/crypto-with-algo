@@ -79,7 +79,7 @@ def find_controls(
 
     min_x = max(
         0,
-        event_d_index - lock.CONTROL_LOOKBACK_DAYS * MIN_PER_DAY,
+        event_i0 - lock.CONTROL_LOOKBACK_DAYS * MIN_PER_DAY,
         lock.CONTROL_QUIET_BEFORE_MIN,
     )
     max_x = min(len(r_pre) - 1, event_i0 - lock.CONTROL_HOLD_MIN)

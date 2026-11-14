@@ -11,7 +11,17 @@ import numpy as np
 from horizon.l1 import lock
 from horizon.l1.data import MarketData
 
-__all__ = ["Burst", "eligible", "find_candidates", "select_events", "spread_median", "x_series"]
+__all__ = [
+    "Burst",
+    "eligible",
+    "find_bursts",
+    "find_candidates",
+    "last_search_index",
+    "select_events",
+    "span_end_dropped",
+    "spread_median",
+    "x_series",
+]
 
 
 @dataclass(frozen=True)
@@ -41,8 +51,8 @@ class Burst:
         return self.i1 - self.i0 + 1
 
 
-def find_candidates(md: MarketData, side: str) -> list[Burst]:
-    """Find candidate bursts where liquidation USD >= BURST_MIN_USD and rows >= BURST_MIN_ROWS."""
+def find_bursts(md: MarketData, side: str) -> list[Burst]:
+    """Find all gap-merged liquidation bursts for side with no size filter."""
     if side == "S":
         usd_arr = md.liq_sell_usd
         rows_arr = md.n_liq_sell
@@ -63,26 +73,39 @@ def find_candidates(md: MarketData, side: str) -> list[Burst]:
     starts = np.r_[0, split_indices + 1]
     ends = np.r_[split_indices, len(liq_indices) - 1]
 
-    candidates: list[Burst] = []
+    bursts: list[Burst] = []
     for s_idx, e_idx in zip(starts, ends, strict=True):
         i0 = int(liq_indices[s_idx])
         i1 = int(liq_indices[e_idx])
         burst_usd = float(np.sum(usd_arr[i0 : i1 + 1]))
         burst_rows = int(np.sum(rows_arr[i0 : i1 + 1]))
-
-        if burst_usd >= lock.BURST_MIN_USD and burst_rows >= lock.BURST_MIN_ROWS:
-            candidates.append(
-                Burst(
-                    market_id=md.market_id,
-                    side=side,
-                    i0=i0,
-                    i1=i1,
-                    usd=burst_usd,
-                    rows=burst_rows,
-                )
+        bursts.append(
+            Burst(
+                market_id=md.market_id,
+                side=side,
+                i0=i0,
+                i1=i1,
+                usd=burst_usd,
+                rows=burst_rows,
             )
+        )
+    return bursts
 
-    return candidates
+
+def find_candidates(md: MarketData, side: str) -> list[Burst]:
+    """Find candidate bursts where liquidation USD >= BURST_MIN_USD and rows >= BURST_MIN_ROWS."""
+    bursts = find_bursts(md, side)
+    return [b for b in bursts if b.usd >= lock.BURST_MIN_USD and b.rows >= lock.BURST_MIN_ROWS]
+
+
+def last_search_index(d_index: int) -> int:
+    """Return the last searched minute grid index for an event with decision time d_index."""
+    return d_index + (lock.EXIT_OFFSETS_MIN[-1] - lock.ENTRY_OFFSET_MIN) + lock.EXIT_SEARCH_MIN
+
+
+def span_end_dropped(d_index: int, n_records: int) -> bool:
+    """True when the event's last exit search passes the readable grid span."""
+    return last_search_index(d_index) >= n_records
 
 
 def select_events(candidates: Sequence[Burst]) -> list[Burst]:

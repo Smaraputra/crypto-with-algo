@@ -16,6 +16,7 @@ import pytest
 
 from horizon.l1 import data as data_mod
 from horizon.l1 import lock, panel
+from horizon.l1.data import funding_files_digest
 
 D1 = dt.date(2025, 1, 17)
 D2 = dt.date(2025, 1, 18)
@@ -896,13 +897,246 @@ def test_failed_build_leaves_no_partial_files_but_a_refusal_deletes_nothing(tmp_
     panel_dir.mkdir()
     (fold_dir / "manifest.jsonl").write_text("", encoding="utf-8")
     (fold_dir / "markets.json").write_text("{}", encoding="utf-8")
-    # no manifest line for the first day: the build fails before writing, then after a partial file exists
     (panel_dir / "market=7.parquet").write_bytes(b"partial")
     with pytest.raises(panel.PanelError, match="already holds"):
         panel.build_panel(fold_dir, panel_dir)
-    assert (panel_dir / "market=7.parquet").exists()  # the refusal deleted nothing
+    assert (panel_dir / "market=7.parquet").exists()
 
     empty_dir = tmp_path / "panel2"
     with pytest.raises(panel.PanelError):
-        panel.build_panel(fold_dir, empty_dir)  # fails on the missing manifest line of the first day
+        panel.build_panel(fold_dir, empty_dir)
     assert list(empty_dir.glob("market=*.parquet")) == []
+
+
+def test_store_market_ids_missing_file_raises(tmp_path: Path) -> None:
+    """Store.market_ids raises DataError naming the market when file in panel manifest is missing."""
+    fold_dir = tmp_path / "fold"
+    panel_dir = tmp_path / "panel"
+    liq_dir = tmp_path / "liq"
+    funding_dir = tmp_path / "funding"
+
+    make_markets_json(
+        fold_dir / "markets.json",
+        [{"market_id": 1, "symbol": "BTC", "market_type": "perp"}],
+    )
+    d1_rows = [{"market_id": 1, "minute": D1_MS, "last_px": 100}]
+    _, s1 = make_fold_day(fold_dir / "v1" / "date=2025-01-17.parquet", d1_rows)
+    _, s2 = make_fold_day(fold_dir / "v1" / "date=2025-01-18.parquet", [])
+    _, s3 = make_fold_day(fold_dir / "v1" / "date=2025-01-19.parquet", [])
+    write_manifest_lines(
+        fold_dir / "manifest.jsonl",
+        [
+            {"date": "2025-01-17", "fold_version": "v1", "output_sha256": s1, "output_rows": 1},
+            {"date": "2025-01-18", "fold_version": "v1", "output_sha256": s2, "output_rows": 0},
+            {"date": "2025-01-19", "fold_version": "v1", "output_sha256": s3, "output_rows": 0},
+        ],
+    )
+    panel.build_panel(fold_dir, panel_dir)
+
+    _, ls1 = make_liq_day(liq_dir / "v1" / "date=2025-01-17.parquet", [])
+    _, ls2 = make_liq_day(liq_dir / "v1" / "date=2025-01-18.parquet", [])
+    _, ls3 = make_liq_day(liq_dir / "v1" / "date=2025-01-19.parquet", [])
+    write_manifest_lines(
+        liq_dir / "manifest.jsonl",
+        [
+            {
+                "date": "2025-01-17",
+                "fold_version": "l1v1",
+                "output_sha256": ls1,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+            {
+                "date": "2025-01-18",
+                "fold_version": "l1v1",
+                "output_sha256": ls2,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+            {
+                "date": "2025-01-19",
+                "fold_version": "l1v1",
+                "output_sha256": ls3,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+        ],
+    )
+    write_manifest_lines(funding_dir / "manifest.jsonl", [])
+
+    # Remove market=1.parquet
+    (panel_dir / "market=1.parquet").unlink()
+
+    store = data_mod.Store(fold_dir, panel_dir, liq_dir, funding_dir)
+    with pytest.raises(data_mod.DataError, match="1"):
+        store.market_ids()
+
+
+def test_store_market_ids_unmanifested_file_raises(tmp_path: Path) -> None:
+    """Store.market_ids raises DataError naming the market when panel file exists but is not in manifest."""
+    fold_dir = tmp_path / "fold"
+    panel_dir = tmp_path / "panel"
+    liq_dir = tmp_path / "liq"
+    funding_dir = tmp_path / "funding"
+
+    make_markets_json(
+        fold_dir / "markets.json",
+        [
+            {"market_id": 1, "symbol": "BTC", "market_type": "perp"},
+            {"market_id": 2, "symbol": "ETH", "market_type": "perp"},
+        ],
+    )
+    d1_rows = [{"market_id": 1, "minute": D1_MS, "last_px": 100}]
+    _, s1 = make_fold_day(fold_dir / "v1" / "date=2025-01-17.parquet", d1_rows)
+    _, s2 = make_fold_day(fold_dir / "v1" / "date=2025-01-18.parquet", [])
+    _, s3 = make_fold_day(fold_dir / "v1" / "date=2025-01-19.parquet", [])
+    write_manifest_lines(
+        fold_dir / "manifest.jsonl",
+        [
+            {"date": "2025-01-17", "fold_version": "v1", "output_sha256": s1, "output_rows": 1},
+            {"date": "2025-01-18", "fold_version": "v1", "output_sha256": s2, "output_rows": 0},
+            {"date": "2025-01-19", "fold_version": "v1", "output_sha256": s3, "output_rows": 0},
+        ],
+    )
+    panel.build_panel(fold_dir, panel_dir)
+
+    _, ls1 = make_liq_day(liq_dir / "v1" / "date=2025-01-17.parquet", [])
+    _, ls2 = make_liq_day(liq_dir / "v1" / "date=2025-01-18.parquet", [])
+    _, ls3 = make_liq_day(liq_dir / "v1" / "date=2025-01-19.parquet", [])
+    write_manifest_lines(
+        liq_dir / "manifest.jsonl",
+        [
+            {
+                "date": "2025-01-17",
+                "fold_version": "l1v1",
+                "output_sha256": ls1,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+            {
+                "date": "2025-01-18",
+                "fold_version": "l1v1",
+                "output_sha256": ls2,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+            {
+                "date": "2025-01-19",
+                "fold_version": "l1v1",
+                "output_sha256": ls3,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+        ],
+    )
+    write_manifest_lines(funding_dir / "manifest.jsonl", [])
+
+    # Create unmanifested market=2.parquet in panel folder
+    (panel_dir / "market=2.parquet").write_bytes(b"dummy_parquet_data")
+
+    store = data_mod.Store(fold_dir, panel_dir, liq_dir, funding_dir)
+    with pytest.raises(data_mod.DataError, match="2"):
+        store.market_ids()
+
+
+def test_store_market_ids_silent_absent_perp(tmp_path: Path) -> None:
+    """A perp market in markets.json but in neither manifest nor folder stays silently absent."""
+    fold_dir = tmp_path / "fold"
+    panel_dir = tmp_path / "panel"
+    liq_dir = tmp_path / "liq"
+    funding_dir = tmp_path / "funding"
+
+    make_markets_json(
+        fold_dir / "markets.json",
+        [
+            {"market_id": 1, "symbol": "BTC", "market_type": "perp"},
+            {"market_id": 99, "symbol": "XYZ", "market_type": "perp"},
+        ],
+    )
+    d1_rows = [{"market_id": 1, "minute": D1_MS, "last_px": 100}]
+    _, s1 = make_fold_day(fold_dir / "v1" / "date=2025-01-17.parquet", d1_rows)
+    _, s2 = make_fold_day(fold_dir / "v1" / "date=2025-01-18.parquet", [])
+    _, s3 = make_fold_day(fold_dir / "v1" / "date=2025-01-19.parquet", [])
+    write_manifest_lines(
+        fold_dir / "manifest.jsonl",
+        [
+            {"date": "2025-01-17", "fold_version": "v1", "output_sha256": s1, "output_rows": 1},
+            {"date": "2025-01-18", "fold_version": "v1", "output_sha256": s2, "output_rows": 0},
+            {"date": "2025-01-19", "fold_version": "v1", "output_sha256": s3, "output_rows": 0},
+        ],
+    )
+    panel.build_panel(fold_dir, panel_dir)
+
+    _, ls1 = make_liq_day(liq_dir / "v1" / "date=2025-01-17.parquet", [])
+    _, ls2 = make_liq_day(liq_dir / "v1" / "date=2025-01-18.parquet", [])
+    _, ls3 = make_liq_day(liq_dir / "v1" / "date=2025-01-19.parquet", [])
+    write_manifest_lines(
+        liq_dir / "manifest.jsonl",
+        [
+            {
+                "date": "2025-01-17",
+                "fold_version": "l1v1",
+                "output_sha256": ls1,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+            {
+                "date": "2025-01-18",
+                "fold_version": "l1v1",
+                "output_sha256": ls2,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+            {
+                "date": "2025-01-19",
+                "fold_version": "l1v1",
+                "output_sha256": ls3,
+                "rows_side_inconsistent": 0,
+                "rows_side_unchecked": 0,
+                "liquidation_rows": 0,
+            },
+        ],
+    )
+    write_manifest_lines(funding_dir / "manifest.jsonl", [])
+
+    store = data_mod.Store(fold_dir, panel_dir, liq_dir, funding_dir)
+    assert store.market_ids() == [1]
+
+
+def test_funding_files_digest_unit(tmp_path: Path) -> None:
+    """funding_files_digest on empty folder, two files, order independence, and byte change."""
+    # 1. Empty folder gives sha256 of empty bytes
+    fdir = tmp_path / "funding_files"
+    fdir.mkdir()
+    empty_digest = funding_files_digest(fdir)
+    assert empty_digest == hashlib.sha256(b"").hexdigest()
+
+    # 2. Two files: market_1.parquet and market_2.parquet
+    f1 = fdir / "market_1.parquet"
+    f2 = fdir / "market_2.parquet"
+    f1.write_bytes(b"content_1")
+    f2.write_bytes(b"content_2")
+
+    digest_1 = funding_files_digest(fdir)
+
+    sha1 = hashlib.sha256(b"content_1").hexdigest()
+    sha2 = hashlib.sha256(b"content_2").hexdigest()
+    expected_text = f"market_1.parquet\t{sha1}\nmarket_2.parquet\t{sha2}\n"
+    expected_digest = hashlib.sha256(expected_text.encode("utf-8")).hexdigest()
+    assert digest_1 == expected_digest
+
+    # Order independence: files sorted by name guarantees deterministic digest
+    assert funding_files_digest(fdir) == digest_1
+
+    # 3. One changed byte in one of the files changes the digest
+    f1.write_bytes(b"content_x")
+    digest_changed = funding_files_digest(fdir)
+    assert digest_changed != digest_1

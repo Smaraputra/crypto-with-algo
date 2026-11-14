@@ -30,14 +30,17 @@ first real run changes the digest and needs a new ledger id. The anchor also hol
 which horizon/l1/fold_liq.py imports. The command run refuses to run when the git working tree has uncommitted changes
 under scripts/research/py/horizon/l1, unless the environment attests a clean tree (HORIZON_GIT_HEAD and
 HORIZON_TREE_CLEAN=1, for the research image that has no .git), and the result then says "attested by environment". The
-research image runs with --network none.
+attestation is accepted only when no .git exists above the horizon/l1 folder, so a repository where git itself fails
+makes the run refuse. The statistics helpers live in horizon/l1/stats.py (a copy of the e1 helpers) so they are inside
+the digest. The research image runs with --network none.
 
 REGISTRATION ANCHOR. scripts/research/py/records/horizon_l1_registration.json holds the lock digest, the sha256 of
-lighter/fold_trades.py, of the fold manifest, of the liquidation pass manifest, of markets.json, of the funding manifest
-and of the panel manifest, and the owner's signature (the date and the lock digest the owner signed in chat). The
-command register-check prints what the file should contain. The command run refuses to run when the file is absent or
-anything differs, and a SYNTHETIC marker alone never disables a guard (the real data carry no synthetic flag). The
-commands panel, register-check and event-count compute no return.
+lighter/fold_trades.py, of the fold manifest, of the liquidation pass manifest, of markets.json, of the funding
+manifest, of the panel manifest and of the funding files (funding_files_sha256, one digest over the sorted names and
+sha256 of every market_*.parquet in the funding folder), and the owner's signature (the date and the lock digest the
+owner signed in chat). The command register-check prints what the file should contain. The command run refuses to run
+when the file is absent or anything differs, and a SYNTHETIC marker alone never disables a guard (the real data carry
+no synthetic flag). The commands panel, register-check and event-count compute no return.
 
 1. DATA (every read goes through horizon/l1/data.py, which enforces the span guards). (i) The Lighter fold, per market
    and UTC minute (lighter/fold_trades.py, version v1): market_id, minute, buy_usd, sell_usd, last_px, last_buy_px,
@@ -72,9 +75,10 @@ commands panel, register-check and event-count compute no return.
    trade is a short). Candidates of one market and side are taken in time order. A candidate is an EVENT unless an
    earlier EVENT of the same market and side, whatever its later eligibility or fill status and including events before
    EVENTS_FROM, satisfies t0(candidate) - E(earlier) < RETRIGGER_MIN = 125 minutes (so the holds of one market and side
-   never overlap). Events with E before EVENTS_FROM (2025-02-17, a 30 day warm-up) are not traded, and events whose last
-   exit search would pass HARD_END_MS (E + 120 + 16 minutes) are dropped and counted. Both sides can be events in the
-   same market.
+   never overlap; an exit search, which reaches E + 135 minutes, may run up to 4 minutes into the next event's decision
+   time, which is allowed). Events with E before EVENTS_FROM (2025-02-17, a 30 day warm-up) are not traded, and events
+   whose last exit search would pass HARD_END_MS (E + 120 + 16 minutes) are dropped and counted. Both sides can be
+   events in the same market.
 
 3. ELIGIBILITY AT THE DECISION TIME D (market type perp, point in time). The 1,440 minutes before D contain at least 360
    minutes with buy_usd + sell_usd above zero, and the market has a spread proxy (rule 4) from at least SP_MIN_PAIRS =
@@ -96,7 +100,10 @@ commands panel, register-check and event-count compute no return.
    sell at exit, a short the reverse. The entry order is sent at D. The exit order is sent at E + h minutes for h in
    EXIT_OFFSETS_MIN = (30, 60, 120), so the holds are 25, 55 and 115 minutes. An exit with no print in its 16 minutes
    fills at last_px of the last minute with a print at or before E + h + 15 (but not before the entry minute) moved
-   against the order by SP / 2, and is flagged. So an event with an entry fill always has an exit: nothing observed
+   against the order by SP / 2, and is flagged, with SP = max(SPM, x(m), x(m - 1)) at the minute m of that last_px.
+   The fold keeps first-print columns only for prints at least 500 ms into their own minute, so in the exit minutes
+   after the first a print in the first 500 ms of a minute is not seen (a limit of the data, part of the rule, with an
+   unknown direction and a small expected size). So an event with an entry fill always has an exit: nothing observed
    after the entry removes an event. Return per trade = exit fill / entry fill - 1 for a long and 1 - exit fill / entry
    fill for a short, a simple return on the notional, less the realised funding: for each Lighter funding stamp s with
    entry fill ts < s <= exit fill ts, a long pays rate_long_pays and a short receives it, as a fraction of the notional.
@@ -139,18 +146,19 @@ commands panel, register-check and event-count compute no return.
 
 8. MATCHED CONTROLS (the claim line, computed in this run, adds no trial). For each event with an entry fill, controls
    are decision times D' of the same market chosen as follows. Candidates are the minute boundaries in the 30 days
-   before the event's t0 that satisfy: D' + 120 minutes is at most t0 (the control hold lies entirely before the event),
-   no liquidation volume of either side exists in the minutes [D' - 125 minutes, D'), the eligibility of rule 3 holds at
-   D', and fills exist at the same offsets for all three exits. The preceding move R_pre(X) = last_px(minute X - 1) /
-   last_px(minute X - 61) - 1, each last_px carried back at most CARRY_BACK_MIN = 5 minutes (an X without both has
-   none), is computed at the event's D and at each candidate. The controls are the CONTROLS_PER_EVENT = 5 candidates
-   with R_pre nearest to the event's, chosen one at a time with each later choice at least 125 minutes from the earlier
-   ones; ties break by the earlier D'. A control is traded exactly as the event (same side, same offsets and fills). An
-   event with fewer than CONTROLS_MIN = 3 controls has no control and is counted. The excess of an event, per trial, is
-   its return minus the mean return of its controls. A cluster's excess is the mean excess of its events. The claim
-   statistic is the one-sided bound (same bootstrap and t bound, level CLAIM_ALPHA = 0.05, a separate generator seeded
-   BOOT_SEED + 1) of the mean cluster excess. The controls are matched on the preceding move and have no recent
-   liquidation, so they separate the burst from a plain rebound after a fall.
+   before the event's t0 that satisfy: D' + 120 minutes is at most t0 (the control's exit orders are sent before the
+   event's burst starts, and an exit search may run up to 10 minutes past that), no liquidation volume of either side
+   exists in the minutes [D' - 125 minutes, D'), the eligibility of rule 3 holds at D', and fills exist at the same
+   offsets for all three exits. The preceding move R_pre(X) = last_px(minute X - 1) / last_px(minute X - 61) - 1, each
+   last_px carried back at most CARRY_BACK_MIN = 5 minutes (an X without both has none), is computed at the event's D
+   and at each candidate. The controls are the CONTROLS_PER_EVENT = 5 candidates with R_pre nearest to the event's,
+   chosen one at a time with each later choice at least 125 minutes from the earlier ones; ties break by the earlier
+   D'. A control is traded exactly as the event (same side, same offsets and fills). An event with fewer than
+   CONTROLS_MIN = 3 controls has no control and is counted. The excess of an event, per trial, is its return minus the
+   mean return of its controls. A cluster's excess is the mean excess of its events. The claim statistic is the
+   one-sided bound (same bootstrap and t bound, level CLAIM_ALPHA = 0.05, a separate generator seeded BOOT_SEED + 1)
+   of the mean cluster excess. The controls are matched on the preceding move and have no recent liquidation, so they
+   separate the burst from a plain rebound after a fall.
 
 9. THE CLAIM LINE. A pass of a trial in rule 6 with a claim bound of rule 8 at or below zero means the trade made money
    but the burst is not what pays (a rebound after any similar fall would have paid the same). That is reported, and the

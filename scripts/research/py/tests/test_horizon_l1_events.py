@@ -10,7 +10,17 @@ import pytest
 from horizon.l1 import data as data_mod
 from horizon.l1 import lock
 from horizon.l1.data import MarketData
-from horizon.l1.events import Burst, eligible, find_candidates, select_events, spread_median, x_series
+from horizon.l1.events import (
+    Burst,
+    eligible,
+    find_bursts,
+    find_candidates,
+    last_search_index,
+    select_events,
+    span_end_dropped,
+    spread_median,
+    x_series,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -121,6 +131,48 @@ def test_bursts_merge_and_split() -> None:
     md_edge3.liq_sell_usd[50] = 100_000.0
     md_edge3.n_liq_sell[50] = 2
     assert len(find_candidates(md_edge3, "S")) == 0
+
+
+def test_find_bursts_and_candidates_filtering() -> None:
+    """find_bursts returns all bursts while find_candidates keeps sized ones in identical order."""
+    md = make_test_md(n_min=100)
+
+    # Burst 1: reaches thresholds (150,000 USD, 4 rows)
+    md.liq_sell_usd[20] = 150_000.0
+    md.n_liq_sell[20] = 4
+
+    # Burst 2: undersized (50,000 USD, 2 rows)
+    md.liq_sell_usd[40] = 50_000.0
+    md.n_liq_sell[40] = 2
+
+    # Burst 3: reaches thresholds (200,000 USD, 5 rows)
+    md.liq_sell_usd[60] = 200_000.0
+    md.n_liq_sell[60] = 5
+
+    bursts = find_bursts(md, "S")
+    cands = find_candidates(md, "S")
+
+    assert len(bursts) == 3
+    assert len(cands) == 2
+    assert len(bursts) > len(cands)
+
+    assert cands[0] == bursts[0]
+    assert cands[1] == bursts[2]
+    assert [b for b in bursts if b in cands] == cands
+
+
+def test_span_end_dropped_edge() -> None:
+    """last_search_index at n - 1 is kept, at n is dropped."""
+    d_index = 10
+    idx = last_search_index(d_index)
+    # Expected: 10 + (120 - 5) + 15 = 140
+    assert idx == 140
+
+    # Readable span n_records = idx + 1 = 141 (last readable index is 140 == idx) -> kept
+    assert not span_end_dropped(d_index, n_records=141)
+
+    # Readable span n_records = idx = 140 (last readable index is 139 < idx) -> dropped
+    assert span_end_dropped(d_index, n_records=140)
 
 
 def test_select_events_retrigger() -> None:

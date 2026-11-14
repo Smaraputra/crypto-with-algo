@@ -10,6 +10,7 @@ import pytest
 from horizon.l1 import data as data_mod
 from horizon.l1 import lock
 from horizon.l1.data import MarketData
+from horizon.l1.events import x_series
 from horizon.l1.fills import order_fill, simulate_trade
 
 
@@ -257,6 +258,53 @@ def test_fallback_exit() -> None:
     assert fill_buy.px == pytest.approx(200.2)
     assert fill_buy.ts == md.ms_of(20) + 60_000
     assert fill_buy.fallback
+
+
+def test_fallback_exit_spread_rule4() -> None:
+    """Exit fallback charges SP/2 where SP = max(spm, x(m), x(m-1)).
+
+    x(m) is 30 bps against spm 5 bps, so fallback charges 15 bps, not 2.5 bps,
+    for both a long exit (sell, lower price) and a short exit (buy, higher price).
+    """
+    md = make_test_md()
+    b = 10
+    spm = 5.0  # 5 bps
+
+    # Minute 20 has last_px = 10_000.0 and qualifying pair with 30 bps spread
+    m = 20
+    md.last_px[m] = 10_000.0
+    # last_buy_px = 10015.0, last_sell_px = 9985.0 -> diff 30.0, mid 10000.0 -> 30 bps
+    md.last_buy_px[m] = 10_015.0
+    md.last_buy_ts[m] = md.ms_of(m) + 1000.0
+    md.last_sell_px[m] = 9985.0
+    md.last_sell_ts[m] = md.ms_of(m) + 1500.0  # diff 500 ms <= 2000 ms
+
+    xs, _ = x_series(md)
+    assert xs[m] == pytest.approx(30.0)
+
+    # 1. Long exit (sell order, order_side = -1):
+    # Charge is SP / 2 = 30 / 2 = 15 bps (not spm / 2 = 2.5 bps)
+    # Fill price moved against order: 10000 * (1 - 15 / 10000) = 9985.0
+    fill_sell = order_fill(
+        md, xs, spm=spm, order_side=-1, boundary_index=b, search_min=lock.EXIT_SEARCH_MIN, is_exit=True, min_index=5
+    )
+    assert fill_sell.found
+    assert fill_sell.fallback
+    assert fill_sell.index == m
+    assert fill_sell.sp == pytest.approx(15.0)
+    assert fill_sell.px == pytest.approx(9985.0)
+
+    # 2. Short exit (buy order, order_side = 1):
+    # Charge is SP / 2 = 15 bps
+    # Fill price moved against order: 10000 * (1 + 15 / 10000) = 10015.0
+    fill_buy = order_fill(
+        md, xs, spm=spm, order_side=1, boundary_index=b, search_min=lock.EXIT_SEARCH_MIN, is_exit=True, min_index=5
+    )
+    assert fill_buy.found
+    assert fill_buy.fallback
+    assert fill_buy.index == m
+    assert fill_buy.sp == pytest.approx(15.0)
+    assert fill_buy.px == pytest.approx(10015.0)
 
 
 def test_simulate_trade() -> None:

@@ -39,6 +39,17 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def funding_files_digest(funding_dir: Path | str) -> str:
+    """sha256 hex over '{name}\t{sha256_file(path)}\n' for every market_*.parquet in funding_dir, sorted by name."""
+    fdir = Path(funding_dir).resolve()
+    files = sorted(fdir.glob("market_*.parquet"), key=lambda p: p.name)
+    h = hashlib.sha256()
+    for f in files:
+        line = f"{f.name}\t{sha256_file(f)}\n"
+        h.update(line.encode("utf-8"))
+    return h.hexdigest()
+
+
 @dataclass
 class MarketData:
     """Dense minute arrays for one perpetual market across the study span."""
@@ -274,11 +285,24 @@ class Store:
     def market_ids(self) -> list[int]:
         """Sorted ids of type perp that have a panel file."""
         panel_markets = self._panel_manifest.get("markets", {})
+
+        # Check: Every market listed in panel manifest must have its market=<id>.parquet file
+        for m_str in panel_markets:
+            panel_file = self.panel_dir / f"market={m_str}.parquet"
+            if not panel_file.is_file():
+                raise DataError(f"market {m_str} listed in panel manifest but file is missing: {panel_file}")
+
+        # Check: Every market=<id>.parquet file in panel folder must be listed in panel manifest
+        for p in self.panel_dir.glob("market=*.parquet"):
+            m_str = p.name[len("market=") : -len(".parquet")]
+            if m_str not in panel_markets:
+                raise DataError(f"market {m_str} has panel file {p.name} but is not listed in panel manifest")
+
+        # Perp markets in markets.json: if in panel_markets, return; if in neither, stay silently absent
         res: list[int] = []
         for m_id, meta in self._markets.items():
             if meta.get("market_type") == "perp":
-                panel_file = self.panel_dir / f"market={m_id}.parquet"
-                if panel_file.is_file() and str(m_id) in panel_markets:
+                if str(m_id) in panel_markets:
                     res.append(m_id)
         return sorted(res)
 
