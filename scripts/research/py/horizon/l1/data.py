@@ -446,6 +446,12 @@ class Store:
 
         funding_file = self.funding_dir / f"market_{market_id}.parquet"
         if not funding_file.is_file():
+            # Only a market whose manifest says "empty" (Lighter listed no funding rows at all) may lack a file. Its
+            # trades are charged zero funding and carry the funding_gap flag. Any other absence stops the run.
+            manifest_line = self._funding_manifest.get(market_id)
+            if manifest_line is None or manifest_line.get("status") != "empty":
+                status = None if manifest_line is None else manifest_line.get("status")
+                raise DataError(f"market {market_id} has no funding file and its manifest status is {status!r}")
             empty = (np.array([], dtype=np.int64), np.array([], dtype=np.float64))
             self._funding_cache[market_id] = empty
             return empty

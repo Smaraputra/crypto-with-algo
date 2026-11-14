@@ -51,7 +51,7 @@ def git_state(
     env: Mapping[str, str] | None = None,
     here: Path | None = None,
 ) -> dict[str, Any]:
-    """Inspect git state or verify attested environment variables (rule 13)."""
+    """Inspect git state or verify attested environment variables (CODE IS PART OF THE LOCK paragraph)."""
     if env is None:
         env = os.environ
     if runner is None:

@@ -35,15 +35,16 @@ makes the run refuse. The statistics helpers live in horizon/l1/stats.py (a copy
 the digest. The research image runs with --network none.
 
 REGISTRATION ANCHOR. scripts/research/py/records/horizon_l1_registration.json holds the lock digest, the sha256 of
-lighter/fold_trades.py, of the fold manifest, of the liquidation pass manifest, of markets.json, of the funding
-manifest, of the panel manifest and of the funding files (funding_files_sha256, one digest over the sorted names and
-sha256 of every market_*.parquet in the funding folder), and the owner's signature (the date and the lock digest the
-owner signed in chat). The command register-check prints what the file should contain. The command run refuses to run
-when the file is absent or anything differs, and a SYNTHETIC marker alone never disables a guard (the real data carry
-no synthetic flag). The commands panel, register-check and event-count compute no return.
+lighter/fold_trades.py, of lighter/lock.py, of the fold manifest, of the liquidation pass manifest, of markets.json,
+of the funding manifest, of the panel manifest and of the funding files (funding_files_sha256, one digest over the
+sorted names and sha256 of every market_*.parquet in the funding folder), and the owner's signature (the date and the
+lock digest the owner signed in chat). The command register-check prints what the file should contain. The command run
+refuses to run when the file is absent or anything differs, and a SYNTHETIC marker alone never disables a guard (the
+real data carry no synthetic flag). The commands panel, register-check and event-count compute no return.
 
-1. DATA (every read goes through horizon/l1/data.py, which enforces the span guards). (i) The Lighter fold, per market
-   and UTC minute (lighter/fold_trades.py, version v1): market_id, minute, buy_usd, sell_usd, last_px, last_buy_px,
+1. DATA (every read goes through horizon/l1/data.py, which enforces the span guards, except that the command panel
+   reads the fold once through lighter/fold_trades.py and its own span guard). (i) The Lighter fold, per market and
+   UTC minute (lighter/fold_trades.py, version v1): market_id, minute, buy_usd, sell_usd, last_px, last_buy_px,
    last_buy_ts, last_sell_px, last_sell_ts, first_buy_px, first_buy_ts, first_sell_px, first_sell_ts, with the fold
    manifest and markets.json. Prices are raw integers per market and only ratios of two prices of the same market are
    used. (ii) The liquidation pass (horizon/l1/fold_liq.py, version l1v1): per market and minute, liq_sell_usd (forced
@@ -94,27 +95,31 @@ no synthetic flag). The commands panel, register-check and event-count compute n
    classes of lighter/lock.py.
 
 4. TRADE AND FILLS. An order is a taker order sent at a minute boundary t. It fills at the first print of EITHER side
-   with timestamp at or after t + 500 ms. An ENTRY searches the minute starting at t only; with no such print the event
-   is unfilled (counted in clause (d) of rule 6). An EXIT searches that minute and the next 15 minutes. A fill by a
-   print of the order's own side (a taker-buy print for a buy) is at the print price. A fill by a print of the other
-   side is at the print price moved against the order by SP bps: a buy at sell_print_px x (1 + SP / 10,000), a sell at
-   buy_print_px x (1 - SP / 10,000). On a timestamp tie the worse price for the order is used. SP = max(SPM, x(m), x(m -
-   1)) where m is the fill minute, x(m) = (last_buy_px - last_sell_px) / ((last_buy_px + last_sell_px) / 2) in bps when
-   both exist in minute m and their timestamps differ by at most 2,000 ms (else 0, and a negative value counts as 0),
-   and SPM is the median of x over the qualifying minutes of the 7 days before D. (Waiting for a same-side print is not
-   used: trade signs persist, so it would fill each leg late exactly when waiting helps.) A long is a buy at entry and a
-   sell at exit, a short the reverse. The entry order is sent at D. The exit order is sent at E + h minutes for h in
-   EXIT_OFFSETS_MIN = (30, 60, 120), so the holds are 25, 55 and 115 minutes. An exit with no print in its 16 minutes
-   fills at last_px of the last minute with a print at or before E + h + 15 (but not before the entry minute) moved
-   against the order by SP / 2, and is flagged, with SP = max(SPM, x(m), x(m - 1)) at the minute m of that last_px.
-   The fold keeps first-print columns only for prints at least 500 ms into their own minute, so in the exit minutes
-   after the first a print in the first 500 ms of a minute is not seen (a limit of the data, part of the rule, with an
-   unknown direction and a small expected size). So an event with an entry fill always has an exit: nothing observed
-   after the entry removes an event. Return per trade = exit fill / entry fill - 1 for a long and 1 - exit fill / entry
-   fill for a short, a simple return on the notional, less the realised funding: for each Lighter funding stamp s with
-   entry fill ts < s <= exit fill ts, a long pays rate_long_pays and a short receives it, as a fraction of the notional.
-   A stamp missing from the funding file inside the hold is not filled in: the event is flagged funding_gap and kept.
-   There is no fee, no stop and no leverage in the judged result.
+   with timestamp at or after t + 500 ms. An ENTRY searches the minute starting at t only; with no such print the
+   event is unfilled (counted in clause (d) of rule 6). An EXIT searches that minute and the next 15 minutes. A fill
+   by a print of the order's own side (a taker-buy print for a buy) is at the print price. A fill by a print of the
+   other side is at the print price moved against the order by SP bps: a buy at sell_print_px x (1 + SP / 10,000), a
+   sell at buy_print_px x (1 - SP / 10,000). On a timestamp tie the worse price for the order is used. SP = max(SPM,
+   x(m), x(m - 1)) where m is the fill minute, x(m) = (last_buy_px - last_sell_px) / ((last_buy_px + last_sell_px) /
+   2) in bps when both exist in minute m and their timestamps differ by at most 2,000 ms (else 0, and a negative value
+   counts as 0), and SPM is the median of x over the qualifying minutes of the 7 days before D. (Waiting for a
+   same-side print is not used: trade signs persist, so it would fill each leg late exactly when waiting helps.) A
+   long is a buy at entry and a sell at exit, a short the reverse. The entry order is sent at D. The exit order is
+   sent at E + h minutes for h in EXIT_OFFSETS_MIN = (30, 60, 120), so the holds are 25, 55 and 115 minutes. An exit
+   with no print in its 16 minutes fills at last_px of the last minute with a print at or before E + h + 15 (but not
+   before the entry minute) moved against the order by SP / 2, and is flagged, with SP = max(SPM, x(m), x(m - 1)) at
+   the minute m of that last_px. The fold keeps first-print columns only for prints at least 500 ms into their own
+   minute, so in the exit minutes after the first a print in the first 500 ms of a minute is not seen (a limit of the
+   data, part of the rule, with an unknown direction and a small expected size). So an event with an entry fill always
+   has an exit: nothing observed after the entry removes an event. Return per trade = exit fill / entry fill - 1 for a
+   long and 1 - exit fill / entry fill for a short, a simple return on the notional, less the realised funding: for
+   each Lighter funding stamp s with entry fill ts < s <= exit fill ts, a long pays rate_long_pays and a short
+   receives it, as a fraction of the notional. A stamp missing from the funding file inside the hold is not filled in:
+   the event is flagged funding_gap and kept. A market whose funding manifest status is "empty" (Lighter listed no
+   funding rows at all, 8 of the 198 markets, 5 eligible events) has no funding file and its trades are charged zero
+   funding and flagged funding_gap. A market with no funding file and any other status stops the run. The fallback
+   fill is stamped at the end of its minute m (m + 60,000 ms), so its latency can be negative and a funding stamp at
+   that minute end is charged. There is no fee, no stop and no leverage in the judged result.
 
 5. UNITS AND CLUSTERS. The cluster is the UTC day of D, because liquidation cascades hit many markets at once. A
    cluster's value is the equal-weight mean of the trade returns of its events. Statistics use clusters.
@@ -140,17 +145,18 @@ no synthetic flag). The commands panel, register-check and event-count compute n
    the fill probe (G3), the owner's gates and the confirmation read of rule 11.
 
 7. REPORTED, NOT JUDGED (descriptive, no trial, cannot rescue a failed trial). For every trial: the numbers of bursts,
-   candidates, events, eligible events, events with an entry fill, markets and clusters with the exclusion reasons; the
-   burst duration (median and 90th percentile); the mean, median, standard deviation, share positive and t of cluster
-   values and of event returns; the volume-weighted mean event return; the result by month, by symbol class and by
-   market (the ten largest by event count); the result without 2025-10-10; the worst move against the trade inside the
-   hold (the largest adverse change of last_px between the entry fill and the exit fill) and the share of events that
-   moved more than 2% and more than 30% against the trade; the mean return after adding 1 and 2 basis points a side of
-   extra cost; the fill latency (fill timestamp minus the order boundary) at entry and exit; the number of flagged
-   exits, ties and funding gaps; the entry offset profile (the same trial with the entry order sent at E + 5, 6, 10 and
-   15 minutes, exits unchanged; the offsets are at least 5 because the burst end is not known earlier); the realised
-   funding sum; and a run the account could follow: 10 USD per trade, at most 10 positions open at once (1x gross of 100
-   USD), events taken in time order, events skipped when the account is full.
+   candidates, events, eligible events, events with an entry fill, markets and clusters with the exclusion reasons;
+   the burst duration (median and 90th percentile); the mean, median, standard deviation, share positive and t of
+   cluster values and of event returns; the volume-weighted mean event return; the result by month, by symbol class
+   and by market (the ten largest by event count); the result without 2025-10-10; the worst move against the trade
+   inside the hold (the largest adverse change of last_px between the entry fill and the exit fill) and the share of
+   events that moved more than 2% and more than 30% against the trade; the mean event return (not the cluster mean)
+   after adding 1 and 2 basis points a side of extra cost; the fill latency (fill timestamp minus the order boundary)
+   at entry and exit; the number of flagged exits, ties and funding gaps; the entry offset profile (the same trial
+   with the entry order sent at E + 5, 6, 10 and 15 minutes, exits unchanged, with eligibility and SPM re-evaluated at
+   E + the offset; the offsets are at least 5 because the burst end is not known earlier); the realised funding sum;
+   and a run the account could follow: 10 USD per trade, at most 10 positions open at once (1x gross of 100 USD),
+   events taken in time order, events skipped when the account is full.
 
 8. MATCHED CONTROLS (the claim line, computed in this run, adds no trial). For each event with an entry fill, controls
    are decision times D' of the same market chosen as follows. Candidates are the minute boundaries in the 30 days

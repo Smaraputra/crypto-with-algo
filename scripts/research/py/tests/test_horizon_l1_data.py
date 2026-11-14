@@ -789,8 +789,46 @@ def test_funding(tmp_path: Path) -> None:
     assert list(rates) == [0.0001, 0.0002]
     assert np.all(ts * 1000 < HARD_END_MS)
 
-    # Empty result when market has no file
-    ts_empty, rates_empty = store.funding(2)
+    # A market with no file and no manifest line stops the run
+    with pytest.raises(data_mod.DataError, match="no funding file"):
+        store.funding(2)
+
+    # A market with no file whose manifest status is not "empty" stops the run
+    write_manifest_lines(
+        funding_dir / "manifest.jsonl",
+        [
+            {
+                "market_id": 1,
+                "status": "ok",
+                "first_ts": t0,
+                "last_ts": t_post,
+                "rows": 4,
+                "confirmed_missing_hours": 0,
+            },
+            {"market_id": 2, "status": "failed", "rows": 0},
+        ],
+    )
+    failed_store = data_mod.Store(fold_dir, panel_dir, liq_dir, funding_dir)
+    with pytest.raises(data_mod.DataError, match="'failed'"):
+        failed_store.funding(2)
+
+    # Status "empty" (Lighter listed no funding rows) is the one case where no file is allowed: empty arrays
+    write_manifest_lines(
+        funding_dir / "manifest.jsonl",
+        [
+            {
+                "market_id": 1,
+                "status": "ok",
+                "first_ts": t0,
+                "last_ts": t_post,
+                "rows": 4,
+                "confirmed_missing_hours": 0,
+            },
+            {"market_id": 2, "status": "empty", "rows": 0},
+        ],
+    )
+    empty_store = data_mod.Store(fold_dir, panel_dir, liq_dir, funding_dir)
+    ts_empty, rates_empty = empty_store.funding(2)
     assert len(ts_empty) == 0
     assert len(rates_empty) == 0
 

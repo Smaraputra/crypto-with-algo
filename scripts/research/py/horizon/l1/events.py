@@ -158,9 +158,9 @@ def spread_median(md: MarketData, xs_valid: np.ndarray, xs: np.ndarray, i_d: int
 def eligible(md: MarketData, xs_valid: np.ndarray, xs: np.ndarray, i_d: int) -> tuple[bool, str]:
     """Check decision time eligibility: activity in [i_d - 1440, i_d) and valid spread proxy."""
     start = i_d - lock.ACTIVITY_WINDOW_MIN
-    if start < 0 or i_d > len(md.active):
+    if start < 0 or i_d > len(md.buy_usd):
         return False, "activity"
-    active_window = md.active[start:i_d]
+    active_window = (md.buy_usd[start:i_d] + md.sell_usd[start:i_d]) > 0.0
     if int(np.count_nonzero(active_window)) < lock.ACTIVITY_MIN_ACTIVE_MIN:
         return False, "activity"
     spm = spread_median(md, xs_valid, xs, i_d)
