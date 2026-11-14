@@ -176,7 +176,7 @@ def test_span_end_dropped_edge() -> None:
 
 
 def test_select_events_retrigger() -> None:
-    """Event retrigger: blocking at 124 min, kept at 125 min, chaining, and early events."""
+    """Event retrigger: blocking at 124 min, kept at 125 min, and the blocked-then-eligible chain."""
     # 1. Event at E=200 blocks candidate at i0=324, keeps candidate at i0=325
     cand_a = Burst(market_id=1, side="S", i0=195, i1=199, usd=100_000.0, rows=3)  # E=200
     cand_blocked = Burst(market_id=1, side="S", i0=324, i1=324, usd=100_000.0, rows=3)
@@ -197,11 +197,31 @@ def test_select_events_retrigger() -> None:
     chain_events = select_events([burst_a, burst_b, burst_c])
     assert chain_events == [burst_a, burst_c]
 
-    # 3. Events before EVENTS_FROM_MS still block subsequent candidates
-    early_burst = Burst(market_id=1, side="S", i0=10, i1=10, usd=100_000.0, rows=3)  # e_index = 11
-    later_burst = Burst(market_id=1, side="S", i0=50, i1=50, usd=100_000.0, rows=3)  # 50 - 11 = 39 < 125
-    early_events = select_events([early_burst, later_burst])
-    assert early_events == [early_burst]
+
+def test_warm_up_burst_blocks_a_later_candidate_but_is_not_traded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rule 3: an event before EVENTS_FROM still blocks a candidate inside 125 minutes, and is itself not traded.
+
+    EVENTS_FROM is minute 1,000. Warm-up burst W (200 to 202, E 203), candidate X at 327 (327 - 203 = 124 < 125) and
+    candidate Y at 1,500. select_events keeps W and Y, the traded events (E at or after EVENTS_FROM) are only Y, and
+    without W the same candidate X would be an event. Catches a retrigger that forgets warm-up events (X would be an
+    event and be traded) and a traded set that keeps the warm-up event.
+    """
+    monkeypatch.setattr(lock, "EVENTS_FROM_MS", 1_000 * lock.MINUTE_MS)
+    md = make_test_md(n_min=2_000)
+    for i0 in (200, 327, 1500):
+        md.liq_sell_usd[i0 : i0 + 3] = 50_000.0
+        md.n_liq_sell[i0 : i0 + 3] = 1
+
+    candidates = find_candidates(md, "S")
+    assert [c.i0 for c in candidates] == [200, 327, 1500]
+
+    events = select_events(candidates)
+    assert [e.i0 for e in events] == [200, 1500]
+    traded = [e for e in events if md.ms_of(e.e_index) >= lock.EVENTS_FROM_MS]
+    assert [e.i0 for e in traded] == [1500]
+
+    # Control: with the warm-up burst removed, X is no longer blocked
+    assert [e.i0 for e in select_events(candidates[1:])] == [327, 1500]
 
 
 def test_x_series() -> None:

@@ -1174,13 +1174,33 @@ def test_funding_files_digest_unit(tmp_path: Path) -> None:
     expected_digest = hashlib.sha256(expected_text.encode("utf-8")).hexdigest()
     assert digest_1 == expected_digest
 
-    # Order independence: files sorted by name guarantees deterministic digest
-    assert funding_files_digest(fdir) == digest_1
-
     # 3. One changed byte in one of the files changes the digest
     f1.write_bytes(b"content_x")
     digest_changed = funding_files_digest(fdir)
     assert digest_changed != digest_1
+
+
+def test_funding_files_digest_creation_order_and_byte_change(tmp_path: Path) -> None:
+    """Same files created in opposite order give one digest (catches an unsorted glob), one changed byte differs."""
+    contents = {"market_1.parquet": b"content_1", "market_2.parquet": b"content_2", "market_3.parquet": b"content_3"}
+    folder_fwd = tmp_path / "forward"
+    folder_rev = tmp_path / "reverse"
+    folder_chg = tmp_path / "changed"
+    for folder in (folder_fwd, folder_rev, folder_chg):
+        folder.mkdir()
+    for name in sorted(contents):
+        (folder_fwd / name).write_bytes(contents[name])
+    for name in sorted(contents, reverse=True):
+        (folder_rev / name).write_bytes(contents[name])
+    for name in sorted(contents):
+        data = contents[name] if name != "market_2.parquet" else b"content_X"
+        (folder_chg / name).write_bytes(data)
+
+    digest_fwd = funding_files_digest(folder_fwd)
+    expected_text = "".join(f"{n}\t{hashlib.sha256(contents[n]).hexdigest()}\n" for n in sorted(contents))
+    assert digest_fwd == hashlib.sha256(expected_text.encode("utf-8")).hexdigest()
+    assert funding_files_digest(folder_rev) == digest_fwd
+    assert funding_files_digest(folder_chg) != digest_fwd
 
 
 def _build_liq_world(tmp_path: Path, per_day: list[tuple[int, int]]) -> tuple[Path, Path, Path, Path]:

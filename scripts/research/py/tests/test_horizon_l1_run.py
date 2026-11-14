@@ -910,7 +910,7 @@ def test_find_repo_root_detects_git_and_none_when_missing(tmp_path: Path, monkey
 def test_event_count_on_fake_store_never_touches_fills(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """event-count prints counts and never touches fills or simulate_trade."""
+    """event-count prints counts and never touches fills, simulate_trade or controls through any binding."""
     env = _setup_test_env(tmp_path, monkeypatch)
 
     monkeypatch.setattr(data_mod, "GRID0_MS", 0)
@@ -947,9 +947,20 @@ def test_event_count_on_fake_store_never_touches_fills(
     def forbidden_call(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("fill/control function was called during event-count")
 
-    monkeypatch.setattr("horizon.l1.fills.order_fill", forbidden_call)
-    monkeypatch.setattr("horizon.l1.fills.simulate_trade", forbidden_call)
-    monkeypatch.setattr("horizon.l1.controls.find_controls", forbidden_call)
+    # report.py and controls.py hold their own from-import bindings, so every binding is patched, not only the
+    # defining modules. raising=True makes the test fail if one of these names stops existing.
+    for target in (
+        "horizon.l1.fills.order_fill",
+        "horizon.l1.fills.simulate_trade",
+        "horizon.l1.controls.find_controls",
+        "horizon.l1.controls.order_fill",
+        "horizon.l1.report.simulate_trade",
+        "horizon.l1.report.find_controls",
+    ):
+        monkeypatch.setattr(target, forbidden_call, raising=True)
+    # run.py itself must not import any of them, else the event-count path could reach fills unnoticed
+    for name in ("simulate_trade", "order_fill", "find_controls"):
+        assert not hasattr(run_mod, name)
 
     ret = main(
         [

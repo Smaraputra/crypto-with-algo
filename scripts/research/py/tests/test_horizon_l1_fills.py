@@ -528,3 +528,68 @@ def test_no_entry_fill_status() -> None:
     assert math.isnan(trade_no_exit.raw_return)
     assert trade_no_exit.latency_entry_ms == 600
     assert trade_no_exit.latency_exit_ms == -1
+
+
+def _entry_only_world(entry_m: int) -> tuple[MarketData, np.ndarray]:
+    """World whose only first print is a taker-buy print 600 ms into the entry minute, no exit prints."""
+    md = make_test_md()
+    xs = np.zeros(1000, dtype=np.float64)
+    md.first_buy_px[entry_m] = 100.0
+    md.first_buy_ts[entry_m] = md.ms_of(entry_m) + 600.0
+    return md, xs
+
+
+def test_fallback_never_reaches_before_the_entry_minute() -> None:
+    """Rule 4: a last_px before the entry minute is not a fallback source, so the trade is no_exit.
+
+    Catches a fallback search that runs down to minute 0 instead of stopping at the entry fill minute.
+    """
+    md, xs = _entry_only_world(entry_m=10)
+    md.last_px[5] = 100.0  # the only last_px, 5 minutes before the entry minute
+    trade = simulate_trade(
+        md=md,
+        xs=xs,
+        spm=20.0,
+        funding_ts=np.array([], dtype=np.int64),
+        funding_rate=np.array([], dtype=np.float64),
+        side="S",
+        entry_index=10,
+        exit_index=40,
+    )
+    assert trade.entry.found
+    assert trade.entry.index == 10
+    assert trade.status == "no_exit"
+    assert not trade.exit.found
+    assert not trade.exit.fallback
+    assert math.isnan(trade.ret)
+
+
+def test_fallback_uses_last_px_exactly_at_the_entry_minute() -> None:
+    """Rule 4: a last_px exactly at the entry minute is usable, flagged fallback, charged SP / 2.
+
+    Hand values: spm 20 bps and xs 0, so SP = 20 and the charge is 10 bps. Long: entry buy print 100.0, exit sell at
+    100.0 x (1 - 0.001) = 99.9, raw return 99.9 / 100 - 1 = -0.001. The fallback stamp is the end of minute 10
+    (660,000 ms), so the exit latency against the order boundary at minute 40 (2,400,000 ms) is -1,740,000 ms.
+    Catches an off-by-one that excludes the entry minute from the fallback range.
+    """
+    md, xs = _entry_only_world(entry_m=10)
+    md.last_px[10] = 100.0
+    md.last_px[5] = 50.0  # earlier and lower: must not be chosen over the entry minute
+    trade = simulate_trade(
+        md=md,
+        xs=xs,
+        spm=20.0,
+        funding_ts=np.array([], dtype=np.int64),
+        funding_rate=np.array([], dtype=np.float64),
+        side="S",
+        entry_index=10,
+        exit_index=40,
+    )
+    assert trade.status == "ok"
+    assert trade.exit.fallback is True
+    assert trade.exit.index == 10
+    assert trade.exit.sp == pytest.approx(10.0)
+    assert trade.exit.px == pytest.approx(99.9)
+    assert trade.exit.ts == md.ms_of(10) + 60_000
+    assert trade.raw_return == pytest.approx(-0.001)
+    assert trade.latency_exit_ms == 660_000 - 2_400_000
