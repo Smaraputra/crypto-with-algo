@@ -284,6 +284,11 @@ def event_count_cmd(
 
         markets_res[str(m_id)] = mkt_entry
 
+        # Release the market's dense arrays before the next one is read (as report.run_all does)
+        del md, xs, xs_valid
+        if hasattr(store, "_market_cache") and isinstance(store._market_cache, dict):
+            store._market_cache.clear()
+
     total_out: dict[str, Any] = {}
     for side in lock.SIDES:
         tc = total_counts[side]

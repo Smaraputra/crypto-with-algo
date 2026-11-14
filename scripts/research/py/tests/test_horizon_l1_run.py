@@ -1070,3 +1070,35 @@ def test_cli_bogus_and_help(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info_sub:
         main(["run", "--help"])
     assert exc_info_sub.value.code == 0
+
+
+class CachingFakeStore(FakeStoreForEventCount):
+    """Fake store that caches every market it hands out, like Store, and records the cache size per read."""
+
+    def __init__(self, market_data: dict[int, MarketData]) -> None:
+        super().__init__(market_data)
+        self._market_cache: dict[int, MarketData] = {}
+        self.cache_sizes_at_read: list[int] = []
+
+    def market(self, market_id: int) -> MarketData:
+        self.cache_sizes_at_read.append(len(self._market_cache))
+        md = self._market_data[market_id]
+        self._market_cache[market_id] = md
+        return md
+
+
+def test_event_count_releases_each_market_before_the_next(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """event-count must not keep every market's dense arrays: the VPS run was killed for memory without this."""
+    monkeypatch.setattr(data_mod, "GRID0_MS", 0)
+    monkeypatch.setattr(data_mod, "N_MIN", 600)
+    stores = CachingFakeStore(
+        {
+            1: make_test_md(n_min=600, market_id=1, symbol="BTC"),
+            2: make_test_md(n_min=600, market_id=2, symbol="ETH"),
+            3: make_test_md(n_min=600, market_id=3, symbol="SOL"),
+        }
+    )
+    result = run_mod.event_count_cmd(tmp_path, tmp_path, tmp_path, tmp_path, store_factory=lambda **kwargs: stores)
+    assert sorted(result["markets"]) == ["1", "2", "3"]
+    assert stores.cache_sizes_at_read == [0, 0, 0]
+    assert stores._market_cache == {}
